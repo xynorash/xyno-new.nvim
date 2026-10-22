@@ -1,0 +1,216 @@
+*xyno-new.txt*  New Rust projects from inside Neovim: binary, library, workspace, egui
+
+                               xyno-new.nvim
+
+==============================================================================
+CONTENTS                                                       *xyno-new-contents*
+
+  1. Introduction ............................. |xyno-new|
+  2. Requirements ............................. |xyno-new-requirements|
+  3. Setup and options ........................ |xyno-new-setup|
+  4. Commands ................................. |xyno-new-commands|
+  5. Keymaps .................................. |xyno-new-keymaps|
+  6. Dashboard entries ........................ |xyno-new-dashboard|
+  7. Lua API .................................. |xyno-new-api|
+  8. How it works ............................. |xyno-new-how|
+  9. Platforms ................................ |xyno-new-platforms|
+ 10. License and origin ....................... |xyno-new-license|
+
+==============================================================================
+1. INTRODUCTION                                                       *xyno-new*
+
+xyno-new.nvim creates new Rust projects without leaving Neovim: a binary, a
+library, a workspace whose members inherit `version` and `edition`, a member
+for an existing workspace, and an egui app from the current eframe_template.
+Every command asks for what it needs, applies cargo's name rules before
+anything is created, leaves nothing behind when a step fails and opens the new
+project.
+
+==============================================================================
+2. REQUIREMENTS                                            *xyno-new-requirements*
+
+  - Neovim 0.12 or newer.
+  - xyno-rust.nvim (required): |xyno_rust.rust_context| finds the workspace of
+    |:RustNewMember|. If it is missing, |xyno_new.setup()| prints one error
+    line and defines nothing.
+  - `cargo` in $PATH. `git` is optional (`git init -b main` for a workspace and
+    for |:EguiNew|, and the defaults of the author prompts).
+  - For |:EguiNew|: `curl`, `unzip` (on Windows `tar`), network access for the
+    first download (the ZIP is cached with its ETag and used offline), and
+    `rustc` for the minimum-version warning.
+  - snacks.nvim is optional: the dashboard entries and `egui_build_after_new`.
+
+==============================================================================
+3. SETUP AND OPTIONS                                             *xyno-new-setup*
+
+                                                              *xyno_new.setup()*
+>lua
+    require("xyno_new").setup({
+      commands = true,
+      keymaps = false,
+      projects_dir = nil,
+      egui_template = nil,
+      egui_build_after_new = nil,
+    })
+<
+Returns true, or false after one error notification when Neovim is older than
+0.12 or xyno-rust.nvim is missing.
+
+                                                        *xyno-new-opt-commands*
+commands ~
+    boolean, default true. Define |:RustNewBin|, |:RustNewLib|,
+    |:RustNewWorkspace|, |:RustNewMember| and |:EguiNew|.
+
+                                                        *xyno-new-opt-keymaps*
+keymaps ~
+    false, true or a table, default false. See |xyno-new-keymaps|.
+
+                                                    *xyno-new-opt-projects_dir*
+projects_dir ~
+    string, default nil. The parent directory offered by the prompts. Without
+    it: ~/projects when that exists, else the current directory. Stored in
+    `vim.g.xyno_new_projects_dir`.
+
+                                                   *xyno-new-opt-egui_template*
+egui_template ~
+    table, default nil: `{ repo = "emilk/eframe_template", ref = "main",
+    base_url = "https://github.com" }`; give the keys you want to change.
+    `base_url` must be an https://, http:// or file:// URL. Stored in
+    `vim.g.xyno_new_egui_template`.
+
+                                              *xyno-new-opt-egui_build_after_new*
+egui_build_after_new ~
+    boolean, default nil. true: run `cargo build` in a snacks.nvim terminal
+    after |:EguiNew|. Stored in `vim.g.xyno_new_egui_build_after_new`.
+
+==============================================================================
+4. COMMANDS                                                    *xyno-new-commands*
+
+                                                                *:RustNewBin*
+:RustNewBin [name]
+    `cargo new --bin --vcs git`. Asks for the name (the argument is used when
+    it is valid) and the parent directory, then switches to the project and
+    opens `src/main.rs`.
+
+                                                                *:RustNewLib*
+:RustNewLib [name]
+    The same with `--lib` and `src/lib.rs`. A name with hyphens shows the crate
+    identifier it will have in Rust code.
+
+                                                          *:RustNewWorkspace*
+:RustNewWorkspace [name]
+    Asks for the workspace name, the parent directory, the kind of the first
+    member and its name. Writes `Cargo.toml` (`[workspace]`, `members =
+    ["crates/*"]`, `[workspace.package]` with `version` and the edition your
+    cargo uses for new projects, an empty `[workspace.dependencies]`) and
+    `.gitignore`, creates the member with `cargo new --vcs none` so that it
+    inherits version and edition, and runs `git init -b main` (no commit).
+    Asks first when the parent lies in another workspace's members or in a git
+    work tree.
+
+                                                              *:RustNewMember*
+:RustNewMember [name]
+    Adds a binary or library crate to the workspace of the current buffer (or
+    the current directory). Refuses a name that clashes with a member or a
+    directory that exists.
+
+                                                                  *:EguiNew*
+:EguiNew [name]
+    Downloads the current eframe_template as a ZIP, asks for the crate name,
+    author name, author e-mail (both may be empty) and the parent directory,
+    and personalises it: crate name, authors, window and page title, the web
+    build file names. Nothing from the template is executed. Its
+    `rust-toolchain` file is never copied; `rust-version` stays and a warning
+    says when `rustc` is older.
+
+A cancelled prompt ends the command silently. Only one project is created at a
+time.
+
+==============================================================================
+5. KEYMAPS                                                      *xyno-new-keymaps*
+
+No global keymap is set by default. With `keymaps = true`, in normal mode:
+
+    <leader>rnb    |:RustNewBin|
+    <leader>rni    |:RustNewLib|
+    <leader>rnw    |:RustNewWorkspace|
+    <leader>rnm    |:RustNewMember|
+    <leader>rne    |:EguiNew|
+
+A table maps only the actions you list (`bin`, `lib`, `workspace`, `member`,
+`egui`) to the keys you choose; false skips one. The defaults are in
+`require("xyno_new").default_keymaps`.
+
+==============================================================================
+6. DASHBOARD ENTRIES                                           *xyno-new-dashboard*
+
+                                                       *xyno_new.dashboard_keys()*
+require("xyno_new").dashboard_keys({keys})
+    Inserts four entries into a list of snacks.nvim dashboard keys, in place,
+    and returns the list: `b` New Rust Binary, `i` New Rust Library, `w` New
+    Rust Workspace, `e` New egui Project. The egui entry goes right before
+    "Quit" (or last), the other three right before it. Calling it twice adds
+    nothing twice; an existing key `e` is respected. Opt-in: nothing happens
+    unless you call it. >lua
+    {
+      "folke/snacks.nvim",
+      opts = function(_, opts)
+        opts.dashboard = opts.dashboard or {}
+        opts.dashboard.preset = opts.dashboard.preset or {}
+        opts.dashboard.preset.keys =
+          require("xyno_new").dashboard_keys(opts.dashboard.preset.keys or {})
+      end,
+    }
+<
+The entries run the commands, so the plugin has to be loaded when they are
+pressed (list the commands in lazy.nvim's `cmd`, or use `lazy = false`).
+
+==============================================================================
+7. LUA API                                                          *xyno-new-api*
+
+    xyno_new            setup(opts), dashboard_keys(keys?), defaults,
+                        default_keymaps
+    xyno_new.rust       setup(), new_project(kind, name?),
+                        new_workspace(name?), new_member(name?), running(),
+                        name, lib_note, first_line, parse_edition, resolver,
+                        workspace_toml, inherit, workspace_info,
+                        add_member_path, layout, nesting_warning,
+                        cargo_edition(), reset_edition(),
+                        create_project(p, cb), create_workspace(p, cb),
+                        create_member(p, cb)
+    xyno_new.egui       setup(), new(name?), create(p, cb), validate_name,
+                        cargo_name, check_author, format_author,
+                        edit_cargo_toml, edit_cargo_lock, readme, config(),
+                        default_parent(), expand_dir(s), parse_version,
+                        check_rust_version(dir, done?) and the other pure text
+                        functions
+    xyno_new.dashboard  keys(keys?), rust_entries, egui_entry
+
+==============================================================================
+8. HOW IT WORKS                                                     *xyno-new-how*
+
+Every external command is an argv list run asynchronously through a small
+coroutine helper around `vim.system`; nothing goes through a shell. The text
+edits (name rules, the workspace manifest, inheriting `version` and `edition`,
+adding a member path, personalising the template) are pure functions. The
+edition is read once per session from a throwaway `cargo new`, never hard-coded;
+the resolver is `3` for edition 2024 and newer, else `2`. A failed step restores
+or removes only what the run created.
+
+==============================================================================
+9. PLATFORMS                                                  *xyno-new-platforms*
+
+Linux: tested by the specs in this repository with a real cargo. Windows: the
+Windows branches of the original code are kept (`tar` instead of `unzip`) but
+unverified; the specs were skipped whole on Windows in xynovim's CI. macOS: the
+specs ran in xynovim's CI, whose macOS runs were not stable overall, so I do not
+claim it works.
+
+==============================================================================
+10. LICENSE AND ORIGIN                                         *xyno-new-license*
+
+MIT, Copyright (c) 2026 Xynorash. These modules come from xynovim
+(https://github.com/xynorash/xynovim), my Neovim configuration for Rust, and
+are an independent plugin.
+
+ vim:tw=78:ts=8:ft=help:norl:
