@@ -21,6 +21,12 @@ local function stub(t, k, v)
   end
 end
 
+--- A test template configuration: http:// / file:// need the opt-in and the fake servers
+--- serve the ref "main" unless the test says otherwise.
+local function tmpl(t)
+  return vim.tbl_extend("keep", t, { allow_insecure = true, ref = "main" })
+end
+
 local function need_tools()
   for _, t in ipairs({ "curl", "unzip", "python3" }) do
     if vim.fn.executable(t) ~= 1 then
@@ -284,7 +290,7 @@ end
 local function file_template(extra, top)
   local root = H.tmpdir()
   fake_zip(root .. "/emilk/eframe_template/archive/main.zip", extra, top)
-  vim.g.xyno_new_egui_template = { base_url = "file://" .. root }
+  vim.g.xyno_new_egui_template = tmpl({ base_url = "file://" .. root })
   return root
 end
 
@@ -771,7 +777,7 @@ describe("egui_new.create with a fake template (file://)", function()
     H.eq({}, leftovers(parent))
 
     local root = H.tmpdir()
-    vim.g.xyno_new_egui_template = { base_url = "file://" .. root }
+    vim.g.xyno_new_egui_template = tmpl({ base_url = "file://" .. root })
     write(root .. "/emilk/eframe_template/archive/main.zip", "this is not a zip file")
     err = create({ crate = "bad_zip", author_name = "", author_email = "", parent = parent })
     H.match(err, "not a valid ZIP")
@@ -794,7 +800,7 @@ describe("egui_new.create with a fake template (file://)", function()
   it("rejects archives whose entries escape the target or are symlinks", function()
     local parent = H.tmpdir()
     local root = H.tmpdir()
-    vim.g.xyno_new_egui_template = { base_url = "file://" .. root }
+    vim.g.xyno_new_egui_template = tmpl({ base_url = "file://" .. root })
     local z = root .. "/emilk/eframe_template/archive/main.zip"
     build_zip(z, { { name = "top/ok.txt", text = "1" }, { name = "top/../../evil.txt", text = "x" } })
     local err = create({ crate = "slip", author_name = "", author_email = "", parent = parent })
@@ -817,7 +823,7 @@ describe("egui_new.create with a fake template (file://)", function()
 
   it("a curl failure without a cached copy is a clear error and leaves nothing", function()
     local parent = H.tmpdir()
-    vim.g.xyno_new_egui_template = { base_url = "file://" .. H.tmpdir() } -- no zip in it
+    vim.g.xyno_new_egui_template = tmpl({ base_url = "file://" .. H.tmpdir() }) -- no zip in it
     local err = create({ crate = "nothing", author_name = "", author_email = "", parent = parent })
     H.match(err, "could not download")
     H.match(err, "no cached copy")
@@ -837,12 +843,78 @@ describe("egui_new.create with a fake template (file://)", function()
       { repo = "a/b c" },
       { ref = "../../x" },
       { ref = "-flag" },
+      { base_url = "https://user:pw@github.com" },
+      { allow_insecure = "yes" },
     }) do
       vim.g.xyno_new_egui_template = bad
       local err = create({ crate = "ok_name", author_name = "", author_email = "", parent = parent })
       H.match(err, "xyno_new_egui_template")
     end
     H.eq({}, leftovers(parent))
+  end)
+end)
+
+describe("egui template: pinned ref and insecure base URLs", function()
+  after_each(function()
+    vim.g.xyno_new_egui_template = nil
+  end)
+
+  it("the default ref is a 40-hex commit, not a branch", function()
+    vim.g.xyno_new_egui_template = nil
+    H.match(E.PINNED_REF, "^%x+$")
+    H.eq(40, #E.PINNED_REF)
+    local c = E.config()
+    H.eq("https://github.com/emilk/eframe_template/archive/" .. E.PINNED_REF .. ".zip", c.url)
+    H.ok(c.pinned)
+    H.eq("=https", c.proto)
+    H.not_ok(c.url:find("/main.zip", 1, true))
+  end)
+
+  it("ref = main still works on request and is not called pinned", function()
+    vim.g.xyno_new_egui_template = { ref = "main" }
+    local c = E.config()
+    H.match(c.url, "/archive/main.zip$")
+    H.not_ok(c.pinned)
+  end)
+
+  it("http:// and file:// are refused by default, accepted with allow_insecure", function()
+    for _, url in ipairs({ "http://example.org", "http://127.0.0.1:8080", "file:///tmp/x" }) do
+      vim.g.xyno_new_egui_template = { base_url = url }
+      local c, err = E.config()
+      H.is_nil(c, url)
+      H.match(err, "allow_insecure", true)
+      H.match(err, url:match("^(%a+):"), true)
+      vim.g.xyno_new_egui_template = { base_url = url, allow_insecure = true }
+      c = E.config()
+      H.ok(c, url .. " with the opt-in")
+      H.eq(url:match("^(%a+):"), c.scheme)
+    end
+    vim.g.xyno_new_egui_template = { base_url = "https://mirror.example.org/", allow_insecure = false }
+    H.ok(E.config(), "https needs no opt-in")
+  end)
+
+  it("a refused base_url downloads nothing and leaves nothing behind", function()
+    need_tools()
+    local z = H.tmpdir() .. "/t.zip"
+    fake_zip(z)
+    local srv = serve(read(z), '"v1"')
+    vim.g.xyno_new_egui_template = { base_url = "http://127.0.0.1:" .. srv.port, ref = "main" }
+    local parent = H.tmpdir()
+    local err = create({ crate = "refused", author_name = "", author_email = "", parent = parent })
+    H.match(err, "allow_insecure", true)
+    H.eq(0, #srv.requests, "no request was made")
+    H.eq({}, leftovers(parent))
+  end)
+
+  it("the default configuration asks for the pinned commit's archive", function()
+    need_tools()
+    local z = H.tmpdir() .. "/t.zip"
+    fake_zip(z, nil, "eframe_template-" .. E.PINNED_REF)
+    local srv = serve(read(z), '"v1"')
+    vim.g.xyno_new_egui_template = { base_url = "http://127.0.0.1:" .. srv.port, allow_insecure = true }
+    local parent = H.tmpdir()
+    H.is_nil(create({ crate = "pinned_one", author_name = "", author_email = "", parent = parent }))
+    H.eq("GET /emilk/eframe_template/archive/" .. E.PINNED_REF .. ".zip HTTP/1.1", srv.requests[1].line)
   end)
 end)
 
@@ -854,7 +926,7 @@ describe("egui_new fetch: ETag, conditional request, offline cache (http://127.0
     fake_zip(z1)
     fake_zip(z2, { { name = "NEW_IN_V2.txt", text = "v2" } })
     local srv = serve(read(z1), '"v1"')
-    vim.g.xyno_new_egui_template = { base_url = "http://127.0.0.1:" .. srv.port }
+    vim.g.xyno_new_egui_template = tmpl({ base_url = "http://127.0.0.1:" .. srv.port })
     local parent = H.tmpdir()
     local cap = H.capture_notify()
 
@@ -907,7 +979,7 @@ describe("egui_new fetch: ETag, conditional request, offline cache (http://127.0
     fake_zip(z1)
     local good = read(z1)
     local srv = serve(good, '"v1"')
-    vim.g.xyno_new_egui_template = { base_url = "http://127.0.0.1:" .. srv.port }
+    vim.g.xyno_new_egui_template = tmpl({ base_url = "http://127.0.0.1:" .. srv.port })
     local parent = H.tmpdir()
     local cap = H.capture_notify()
     H.is_nil(create({ crate = "one", author_name = "", author_email = "", parent = parent }))
@@ -927,12 +999,12 @@ describe("egui_new fetch: ETag, conditional request, offline cache (http://127.0
     local z1 = H.tmpdir() .. "/v1.zip"
     fake_zip(z1)
     local srv = serve(read(z1), '"v1"')
-    vim.g.xyno_new_egui_template = { base_url = "http://127.0.0.1:" .. srv.port }
+    vim.g.xyno_new_egui_template = tmpl({ base_url = "http://127.0.0.1:" .. srv.port })
     local parent = H.tmpdir()
     H.is_nil(create({ crate = "one", author_name = "", author_email = "", parent = parent }))
     srv.stop()
     vim.wait(100)
-    vim.g.xyno_new_egui_template = { base_url = "http://127.0.0.1:" .. srv.port, ref = "other" }
+    vim.g.xyno_new_egui_template = tmpl({ base_url = "http://127.0.0.1:" .. srv.port, ref = "other" })
     local err = create({ crate = "two", author_name = "", author_email = "", parent = parent })
     H.match(err, "no cached copy")
   end)
@@ -942,7 +1014,7 @@ describe("egui_new fetch: ETag, conditional request, offline cache (http://127.0
     fake_zip(z1)
     local srv = serve(read(z1), '"v1"')
     local url = "http://127.0.0.1:" .. srv.port
-    vim.g.xyno_new_egui_template = { base_url = url }
+    vim.g.xyno_new_egui_template = tmpl({ base_url = url })
     local parent = H.tmpdir()
     H.is_nil(create({ crate = "one", author_name = "", author_email = "", parent = parent }))
     write(cache_dir() .. "/egui-template.json", vim.json.encode({
@@ -1070,7 +1142,7 @@ describe(":EguiNew prompts", function()
 
   it("cancelling any prompt aborts silently and leaves nothing", function()
     local srv = serve("x", '"e"')
-    vim.g.xyno_new_egui_template = { base_url = "http://127.0.0.1:" .. srv.port }
+    vim.g.xyno_new_egui_template = tmpl({ base_url = "http://127.0.0.1:" .. srv.port })
     local parent = H.tmpdir()
     vim.g.xyno_new_projects_dir = parent
     local cap = H.capture_notify()
@@ -1094,7 +1166,7 @@ describe(":EguiNew prompts", function()
   end)
 
   it("reports a failed download as an error and a second run works afterwards", function()
-    vim.g.xyno_new_egui_template = { base_url = "file://" .. H.tmpdir() }
+    vim.g.xyno_new_egui_template = tmpl({ base_url = "file://" .. H.tmpdir() })
     local parent = H.tmpdir()
     local cap = H.capture_notify()
     stub_input({ "failing", "", "", parent })
@@ -1155,7 +1227,7 @@ end)
 describe("the real template (network)", function()
   it("downloads eframe_template and personalises it as my_gui_app", function()
     need_tools()
-    local r = vim.system({ "curl", "-sSIL", "--max-time", "10", "-o", "/dev/null", "https://github.com/emilk/eframe_template/archive/main.zip" }):wait(15000)
+    local r = vim.system({ "curl", "-sSIL", "--max-time", "10", "-o", "/dev/null", "https://github.com/emilk/eframe_template/archive/" .. E.PINNED_REF .. ".zip" }):wait(15000)
     if r.code ~= 0 then
       return skip("no network to github.com")
     end

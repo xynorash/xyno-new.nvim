@@ -8,7 +8,7 @@ M.defaults = {
   commands = true, -- :RustNewBin :RustNewLib :RustNewWorkspace :RustNewMember :EguiNew
   keymaps = false, -- false | true | { bin = lhs, lib = lhs, ... } (global, normal mode)
   projects_dir = nil, -- parent directory offered by the prompts (default ~/projects if it exists, else the cwd)
-  egui_template = nil, -- { repo = "emilk/eframe_template", ref = "main", base_url = "https://github.com" }
+  egui_template = nil, -- { repo = "emilk/eframe_template", ref = <a pinned commit>, base_url = "https://github.com", allow_insecure = false }
   egui_build_after_new = nil, -- true: run `cargo build` in a snacks terminal after :EguiNew
 }
 
@@ -64,7 +64,25 @@ function M.setup(opts)
     vim.g.xyno_new_projects_dir = opts.projects_dir
   end
   if opts.egui_template ~= nil then
-    vim.g.xyno_new_egui_template = opts.egui_template
+    local bad = {}
+    if type(opts.egui_template) ~= "table" then
+      bad[1] = "egui_template must be a table"
+    else
+      for k, v in pairs(opts.egui_template) do
+        if k == "allow_insecure" then
+          if type(v) ~= "boolean" then
+            bad[#bad + 1] = "egui_template.allow_insecure must be true or false"
+          end
+        elseif k ~= "repo" and k ~= "ref" and k ~= "base_url" then
+          bad[#bad + 1] = ("unknown egui_template key `%s`"):format(tostring(k))
+        end
+      end
+    end
+    if #bad > 0 then
+      vim.notify("xyno-new.nvim: invalid options, egui_template ignored:\n  " .. table.concat(bad, "\n  "), vim.log.levels.ERROR, { title = "xyno-new" })
+    else
+      vim.g.xyno_new_egui_template = opts.egui_template
+    end
   end
   if opts.egui_build_after_new ~= nil then
     vim.g.xyno_new_egui_build_after_new = opts.egui_build_after_new

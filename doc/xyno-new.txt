@@ -73,9 +73,12 @@ projects_dir ~
 
                                                    *xyno-new-opt-egui_template*
 egui_template ~
-    table, default nil: `{ repo = "emilk/eframe_template", ref = "main",
-    base_url = "https://github.com" }`; give the keys you want to change.
-    `base_url` must be an https://, http:// or file:// URL. Stored in
+    table, default nil: `{ repo = "emilk/eframe_template", ref = <pinned commit>,
+    base_url = "https://github.com", allow_insecure = false }`; give the keys
+    you want to change. The default ref is a commit (xyno_new.egui.PINNED_REF),
+    not main; ref = "main" follows the newest template. `base_url` must be
+    https://; http:// and file:// need allow_insecure = true; credentials in
+    the URL are refused. Stored in
     `vim.g.xyno_new_egui_template`.
 
                                               *xyno-new-opt-egui_build_after_new*

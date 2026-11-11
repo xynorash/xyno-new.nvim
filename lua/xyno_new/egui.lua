@@ -6,7 +6,12 @@
 --
 -- Options (all optional; setup() sets them from projects_dir, egui_template, egui_build_after_new):
 --   vim.g.xyno_new_projects_dir              parent directory (default ~/projects if it exists, else the cwd)
---   vim.g.xyno_new_egui_template             { repo = "emilk/eframe_template", ref = "main", base_url = "https://github.com" }
+--   vim.g.xyno_new_egui_template             { repo = "emilk/eframe_template", ref = M.PINNED_REF (a commit),
+--                                            base_url = "https://github.com", allow_insecure = false }
+--       ref: a tag, branch or commit; the default is a COMMIT of the template (below), so the project you get
+--       does not change under you. ref = "main" follows the template's newest state (the old default).
+--       base_url must be https://; http:// and file:// are refused unless allow_insecure = true (a mirror
+--       on a trusted network, a local test copy).
 --   vim.g.xyno_new_egui_build_after_new      true: run `cargo build` in a terminal afterwards
 --
 -- The template's rust-toolchain file is never copied (it would make rustup install one exact
@@ -17,6 +22,12 @@
 local M = {}
 
 local TOKEN = "eframe_template"
+
+--- The commit of emilk/eframe_template that :EguiNew uses unless egui_template.ref says otherwise.
+--- f108546 (2026-08-31, "Fix outdated trunk link in index.html"), egui 0.36. Bump it on purpose:
+--- change PINNED_REF and re-run the template specs.
+M.PINNED_REF = "f108546a2b9f2fc6a82543ceae1625a3893305cb"
+M.PINNED_DATE = "2026-08-31"
 local TITLE_TOKEN = "eframe template"
 local UA = "xyno-new.nvim (github.com/xynorash/xyno-new.nvim)"
 local NOTIFY_ID = "xyno_new_egui"
@@ -39,6 +50,13 @@ for w in ("test core std alloc proc_macro deps examples build incremental"):gmat
   RESERVED[w] = true
 end
 
+-- names Windows cannot use for a file or directory (cargo refuses them as package names there);
+-- refused everywhere, so a project made on Linux can be checked out on Windows
+local WINDOWS_RESERVED = {}
+for w in ("con prn aux nul com1 com2 com3 com4 com5 com6 com7 com8 com9 lpt1 lpt2 lpt3 lpt4 lpt5 lpt6 lpt7 lpt8 lpt9"):gmatch("%S+") do
+  WINDOWS_RESERVED[w] = true
+end
+
 -- the template's own dependencies (a lib named like one of them cannot compile);
 -- M.dependency_names adds what the downloaded Cargo.toml really lists
 local DEPENDENCIES = {}
@@ -54,7 +72,7 @@ function M.cargo_name(raw)
   if name == "" then
     return nil, "the name is empty"
   end
-  local bad = name:match("[^%w_%-][\128-\191]*") -- the whole UTF-8 character
+  local bad = name:match("[^A-Za-z0-9_%-][\128-\191]*") -- the whole UTF-8 character; ASCII only, whatever the locale
   if bad then
     return nil, ("'%s' is not allowed: use letters, digits, '_' and '-'"):format(bad)
   end
@@ -62,7 +80,7 @@ function M.cargo_name(raw)
   if #crate > 64 then
     return nil, "the name is longer than 64 characters"
   end
-  if not crate:match("^[%a_]") then
+  if not crate:match("^[A-Za-z_]") then
     return nil, "the name must start with a letter or '_'"
   end
   if crate == "_" then
@@ -73,6 +91,9 @@ function M.cargo_name(raw)
   end
   if RESERVED[crate] then
     return nil, ("'%s' is reserved by cargo / the standard library"):format(crate)
+  end
+  if WINDOWS_RESERVED[crate:lower()] then
+    return nil, ("'%s' is a reserved Windows file name"):format(crate)
   end
   return crate, nil, crate ~= name and ("crate name: " .. crate) or nil
 end
@@ -469,8 +490,9 @@ end
 local function cfg()
   local c = vim.tbl_extend("force", {
     repo = "emilk/eframe_template",
-    ref = "main",
+    ref = M.PINNED_REF,
     base_url = "https://github.com",
+    allow_insecure = false,
   }, vim.g.xyno_new_egui_template or {})
   if type(c.repo) ~= "string" or not c.repo:match("^[%w_.-]+/[%w_.-]+$") then
     return nil, "vim.g.xyno_new_egui_template.repo must look like owner/name"
@@ -478,10 +500,20 @@ local function cfg()
   if type(c.ref) ~= "string" or not c.ref:match("^[%w_][%w_./-]*$") or c.ref:find("..", 1, true) then
     return nil, "vim.g.xyno_new_egui_template.ref is not a valid branch, tag or commit"
   end
+  if type(c.allow_insecure) ~= "boolean" then
+    return nil, "vim.g.xyno_new_egui_template.allow_insecure must be true or false"
+  end
   local base = type(c.base_url) == "string" and c.base_url:gsub("/+$", "") or ""
-  local scheme = base:match("^(%a+)://[^%s]+$")
+  local scheme, rest = base:match("^(%a+)://([^%s]+)$")
   if scheme ~= "https" and scheme ~= "http" and scheme ~= "file" then
-    return nil, "vim.g.xyno_new_egui_template.base_url must be an https://, http:// or file:// URL"
+    return nil, "vim.g.xyno_new_egui_template.base_url must be an https:// URL"
+  end
+  if scheme ~= "https" and not c.allow_insecure then
+    return nil,
+      ("vim.g.xyno_new_egui_template.base_url uses %s://, which is refused by default (the template would travel unencrypted or come from a local path): use https://, or set allow_insecure = true to accept %s://"):format(scheme, scheme)
+  end
+  if scheme ~= "file" and rest:match("^[^/]*@") then
+    return nil, "vim.g.xyno_new_egui_template.base_url must not contain credentials (user@host)"
   end
   local proto = scheme == "https" and "=https" or scheme == "http" and "=http,https" or "=file"
   return {
@@ -489,6 +521,8 @@ local function cfg()
     proto = proto,
     repo = c.repo,
     ref = c.ref,
+    scheme = scheme,
+    pinned = c.ref == M.PINNED_REF,
   }
 end
 M.config = cfg

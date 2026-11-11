@@ -1001,3 +1001,107 @@ describe(":RustNew* prompts", function()
     end, 60000, "first created")
   end)
 end)
+
+-- ====================================== review: workspace names, dotted keys
+
+describe("rust_new.workspace_name", function()
+  it("takes the package rules, refuses the hyphen at the end and a name too long for its default member", function()
+    H.eq("my-ws", (R.workspace_name(" my-ws ")))
+    H.ok(R.workspace_name(("a"):rep(59)))
+    for _, bad in ipairs({ "ws-", ("a"):rep(60), ("a"):rep(64), "", "fn", "-x", "a b", "1ws", "nul", "CON", "com1", "LPT9", "aux" }) do
+      local n, why = R.workspace_name(bad)
+      H.is_nil(n, "'" .. bad .. "' must be refused")
+      H.ok(type(why) == "string" and why ~= "", "a reason for '" .. bad .. "'")
+    end
+  end)
+
+  it("package names refuse the Windows device names too, and non-ASCII under any locale", function()
+    for _, bad in ipairs({ "nul", "Con", "prn", "com3", "lpt1" }) do
+      H.is_nil((R.name(bad)), bad)
+      H.is_nil((E.validate_name(bad)), bad)
+    end
+    H.ok(R.name("console"), "only the exact device names")
+    H.ok(R.name("com10"))
+    for _, bad in ipairs({ "caf\195\169", "\195\169x", "na\195\175ve", "\200\128" }) do
+      H.is_nil((R.name(bad)), bad)
+    end
+  end)
+
+  it("create_workspace says why, and a refused name creates nothing", function()
+    local parent = H.tmpdir()
+    stub_cargo('echo called >> "' .. parent .. '/called"')
+    for _, n in ipairs({ "ws-", "nul" }) do
+      local err = wait_cb(function(cb)
+        R.create_workspace({ name = n, parent = parent, kind = "binary", member = "ok" }, cb)
+      end)
+      H.match(err, "invalid workspace name: ", true)
+      H.ok(#err > #"invalid workspace name: ", "the reason is in the message: " .. err)
+    end
+    H.is_nil(vim.uv.fs_stat(parent .. "/called"))
+    H.eq({}, vim.fn.readdir(parent))
+  end)
+end)
+
+describe("rust_new: dotted and inline workspace keys", function()
+  local function members(text)
+    local i, why = R.workspace_info(text)
+    return i and i.members, why
+  end
+
+  it("reads workspace.members in the top table and members under a dotted prefix", function()
+    H.eq({ "crates/*" }, members('workspace.members = ["crates/*"]\n'))
+    H.eq({ "a", "b" }, members('workspace.members = ["a", \'b\']\n\n[package]\nname = "x"\n'))
+    H.eq({ "a" }, members('workspace . members = ["a"]\n'))
+    H.eq({ "a" }, members('"workspace"."members" = ["a"]\n'))
+    H.eq({ "a", "b" }, members('workspace.members = [\n  "a", # one\n  "b",\n]\nworkspace.resolver = "2"\n'))
+    H.eq({ "a" }, members('[workspace]\n\nmembers = ["a"]\n'))
+    H.eq({ "a" }, members('[ workspace ] # the root\nmembers = ["a"]\n'))
+  end)
+
+  it("reads an inline workspace table", function()
+    H.eq({ "a", "b" }, members('workspace = { resolver = "2", members = ["a", "b"] }\n'))
+  end)
+
+  it("does not mistake other tables for the workspace", function()
+    local _, why = members('[package]\nworkspace.members = ["p"]\n')
+    H.match(why, "no `members", true)
+    _, why = members('[[bin]]\nname = "x"\nmembers = ["p"]\n')
+    H.match(why, "no `members", true)
+    _, why = members('[other.workspace]\nmembers = ["p"]\n')
+    H.match(why, "no `members", true)
+    H.eq({ "real" }, members('[package]\nmembers = ["p"]\n[workspace]\nmembers = ["real"]\n'))
+  end)
+
+  it("a ] inside a quoted member does not end the list", function()
+    H.eq({ "a]b", "c" }, members('workspace.members = [\n  "a]b",\n  "c",\n]\n'))
+  end)
+
+  it("an unclosed list is reported", function()
+    local _, why = members('workspace.members = ["a",\n')
+    H.match(why, "not closed", true)
+  end)
+
+  it("add_member_path edits the dotted spelling in place", function()
+    H.eq('workspace.members = ["a", "crates/n"]\n', R.add_member_path('workspace.members = ["a"]\n', "crates/n"))
+    H.eq('workspace.members = [\n  "a",\n  "crates/n",\n]\n[package]\nname = "x"\n', R.add_member_path('workspace.members = [\n  "a",\n]\n[package]\nname = "x"\n', "crates/n"))
+    H.eq('workspace = { members = ["a", "crates/n"] }\n', R.add_member_path('workspace = { members = ["a"] }\n', "crates/n"))
+    local t = 'workspace.members = ["crates/*"]\n'
+    H.eq(t, R.add_member_path(t, "crates/n"), "already covered by the glob")
+  end)
+
+  it("workspace.package keys count in every spelling", function()
+    H.eq({ version = true, edition = true }, R.workspace_info('[workspace]\nmembers = []\n[workspace.package]\nversion = "1"\nedition = "2021"\n').inherits)
+    H.eq({ version = true }, R.workspace_info('workspace.members = []\nworkspace.package.version = "1"\n').inherits)
+    H.eq({ edition = true }, R.workspace_info('[workspace]\nmembers = []\npackage.edition = "2021"\n').inherits)
+    H.eq({ version = true, edition = true }, R.workspace_info('[workspace]\nmembers = []\npackage = { version = "1", edition = "2021" }\n').inherits)
+    H.eq({}, R.workspace_info('[workspace]\nmembers = []\n[package]\nversion = "1"\n').inherits)
+  end)
+
+  it("the nesting warning sees an enclosing dotted workspace", function()
+    local root = H.tmpdir()
+    write(root .. "/Cargo.toml", 'workspace.members = ["libs/*"]\n')
+    vim.fn.mkdir(root .. "/libs", "p")
+    H.match(R.nesting_warning(root .. "/libs", "newlib") or "", "would stop working", true)
+    H.is_nil(R.nesting_warning(root, "outside"))
+  end)
+end)

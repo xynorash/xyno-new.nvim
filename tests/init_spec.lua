@@ -133,3 +133,37 @@ describe("xyno-rust.nvim missing", function()
     end
   end)
 end)
+
+describe("setup: egui_template validation and :checkhealth", function()
+  it("takes allow_insecure, refuses unknown keys and wrong types with one message", function()
+    H.ok(N.setup({ egui_template = { base_url = "http://mirror.local", allow_insecure = true } }))
+    H.eq(true, vim.g.xyno_new_egui_template.allow_insecure)
+    vim.g.xyno_new_egui_template = nil
+    local cap = H.capture_notify()
+    H.ok(N.setup({ egui_template = { allow_insecure = "yes", bogus = 1 } }))
+    H.is_nil(vim.g.xyno_new_egui_template)
+    local msg = cap.list[#cap.list].msg
+    H.match(msg, "allow_insecure must be true or false", true)
+    H.match(msg, "unknown egui_template key `bogus`", true)
+  end)
+
+  it("health reports the pinned template and an opted-in insecure URL", function()
+    local lines = {}
+    local orig = vim.health
+    local function rec(m)
+      lines[#lines + 1] = m
+    end
+    vim.health = { start = rec, ok = rec, info = rec, warn = rec, error = rec }
+    local ok, err = pcall(require("xyno_new.health").check)
+    vim.health = orig
+    H.ok(ok, err)
+    H.match(table.concat(lines, "\n"), "pinned to commit", true)
+    vim.health = { start = rec, ok = rec, info = rec, warn = rec, error = rec }
+    lines = {}
+    vim.g.xyno_new_egui_template = { base_url = "http://x.local", allow_insecure = true }
+    pcall(require("xyno_new.health").check)
+    vim.health = orig
+    vim.g.xyno_new_egui_template = nil
+    H.match(table.concat(lines, "\n"), "allow_insecure", true)
+  end)
+end)
