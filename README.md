@@ -75,6 +75,19 @@ Highlights: this plugin draws no window of its own (the prompts are `vim.ui.inpu
 
 No global keymap is set by default. `keymaps = true` maps `<leader>rnb`, `rni`, `rnw`, `rnm`, `rne` (binary, library, workspace, member, egui). A table maps only the actions you list, to the keys you choose (`false` skips one).
 
+## Templates (`:RustNewFrom`)
+
+A picker over the built-in kinds (binary, library, workspace, member, egui) and a **pinned list** you configure:
+
+```lua
+require("xyno_new").setup({ templates = {
+  { name = "axum service", path = "~/templates/axum", description = "axum + tracing" },
+  { name = "cli", git = "https://github.com/me/cli-template", rev = "<40-hex commit>" },
+} })
+```
+
+A template is copied; `{{name}}`, `{{crate_name}}` and `{{title}}` are replaced in text files and file names. A git template needs the exact 40-hex commit (a branch can move); it is cloned without hooks and checked out detached. **Nothing is executed**: a template with `cargo-generate.toml` hooks or any `.rhai` file is refused, and so is one with a symbolic link. This is deliberately not `cargo-generate`: its templates run Rhai scripts, so using one is running its author's code. Placeholders beyond the three above (prompts, conditionals) are not supported.
+
 ## Names
 
 Package and workspace names follow cargo's rules before anything is created: ASCII letters, digits, `-` and `_` (whatever your locale), not starting with a digit or `-`, no Rust keyword, no name cargo reserves (`test`, `std`, `deps`, ...), no Windows device name (`nul`, `con`, `com1`, ... are refused on every platform so the project can move to Windows), at most 64 characters. A **workspace** name also must not end with `-` and must leave room for its default first member (`<name>-app` / `<name>-core` is at most 64 characters), and the error says why. 

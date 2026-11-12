@@ -10,6 +10,7 @@ M.defaults = {
   projects_dir = nil, -- parent directory offered by the prompts (default ~/projects if it exists, else the cwd)
   egui_template = nil, -- { repo = "emilk/eframe_template", ref = <a pinned commit>, base_url = "https://github.com", allow_insecure = false }
   workspace = {}, -- template of :RustNewWorkspace: { members_dir = "crates", version = "0.1.0", gitignore = "/target\n", git = true, git_branch = "main" }
+  templates = nil, -- pinned template list for :RustNewFrom: { { name, path | git + rev (40 hex), description? }, ... }
   egui_build_after_new = nil, -- true: run `cargo build` in a snacks terminal after :EguiNew
 }
 
@@ -111,12 +112,21 @@ function M.setup(opts)
       vim.g.xyno_new_egui_template = opts.egui_template
     end
   end
+  do
+    local tpl = require("xyno_new.templates")
+    local list, bad = tpl.validate(opts.templates)
+    if #bad > 0 then
+      vim.notify("xyno-new.nvim: invalid options, these templates are ignored:\n  " .. table.concat(bad, "\n  "), vim.log.levels.ERROR, { title = "xyno-new" })
+    end
+    tpl.set(list)
+  end
   if opts.egui_build_after_new ~= nil then
     vim.g.xyno_new_egui_build_after_new = opts.egui_build_after_new
   end
   if opts.commands then
     require("xyno_new.rust").setup()
     require("xyno_new.egui").setup()
+    require("xyno_new.templates").setup()
   end
   if opts.keymaps then
     local keys = opts.keymaps == true and M.default_keymaps or opts.keymaps
