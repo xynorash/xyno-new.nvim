@@ -47,6 +47,24 @@ local function check_dependencies()
   return true
 end
 
+--- The xyno-rust.nvim API this plugin was written against (see xyno_rust.compatible).
+M.requires_rust_api = "1.1"
+
+--- Fails with one clear line when xyno-rust.nvim is too old or too new for this plugin.
+local function rust_api_ok(name)
+  local ok, rust = pcall(require, "xyno_rust")
+  if not ok or type(rust.compatible) ~= "function" then
+    vim.notify(name .. ": the installed xyno-rust.nvim is too old to say which API it has (needs API " .. M.requires_rust_api .. "): update xyno-rust.nvim", vim.log.levels.ERROR)
+    return false
+  end
+  local good, why = rust.compatible(M.requires_rust_api)
+  if not good then
+    vim.notify(name .. ": " .. why, vim.log.levels.ERROR)
+    return false
+  end
+  return true
+end
+
 --- Configure and start the plugin. Safe to call again. Returns false (after one error
 --- notification, no Lua error) when xyno-rust.nvim is missing, or when Neovim is too old.
 ---@param opts? { commands?: boolean, keymaps?: boolean|table<string, string|false>, projects_dir?: string, egui_template?: table, egui_build_after_new?: boolean }
@@ -57,7 +75,7 @@ function M.setup(opts)
     vim.notify("xyno-new.nvim needs Neovim 0.12 or newer", vim.log.levels.ERROR, { title = "xyno-new" })
     return false
   end
-  if not check_dependencies() then
+  if not check_dependencies() or not rust_api_ok("xyno-new") then
     return false
   end
   if opts.projects_dir ~= nil then

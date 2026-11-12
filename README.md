@@ -11,7 +11,7 @@ I use this in my own Rust setup, [xynovim](https://github.com/xynorash/xynovim),
 ## Requirements
 
 - Neovim 0.12+
-- [xyno-rust.nvim](https://github.com/xynorash/xyno-rust.nvim) (a required dependency: `xyno_rust.rust_context` finds the workspace for `:RustNewMember`, `xyno_rust.fsutil` is used for the nesting check). If it is missing, `setup()` prints one error line and defines nothing.
+- [xyno-rust.nvim](https://github.com/xynorash/xyno-rust.nvim) (a required dependency: `xyno_rust.rust_context` finds the workspace for `:RustNewMember`, `xyno_rust.fsutil` is used for the nesting check). If it is missing, `setup()` prints one error line and defines nothing. `setup()` also checks the API version (`require("xyno_rust").compatible(require("xyno_new").requires_rust_api)`, now `1.1`): a xyno-rust.nvim with another major or an older minor gives one error line naming the fix, and nothing starts. The CI workflow fetches the dependencies by tag (`XYNO_RUST_REF`), never `main`; pin your own plugin manager the same way (`tag = "v0.2.0"` or a commit) so a breaking major cannot arrive unannounced.
 - `cargo` in `$PATH`
 - `git` (optional): used for `git init -b main` in a workspace and for `:EguiNew`, and to prefill the author prompts. Without it those steps are skipped with a note.
 - for `:EguiNew`: `curl` and `unzip` (on Windows `tar` instead of `unzip`), network access to github.com for the first download (the ZIP is cached, with its ETag, and used when offline), and `rustc` for the minimum-version warning
