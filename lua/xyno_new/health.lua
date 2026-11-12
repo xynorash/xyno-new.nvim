@@ -39,21 +39,35 @@ function M.check()
   end
   h.info("source: " .. c.url)
   if c.pinned then
-    h.ok(("pinned to commit %s (%s): the project does not change under you"):format(E.PINNED_REF:sub(1, 7), E.PINNED_DATE))
+    h.ok(
+      ("pinned to commit %s (%s): the project does not change under you"):format(E.PINNED_REF:sub(1, 7), E.PINNED_DATE)
+    )
   elseif c.ref:match("^%x+$") and #c.ref >= 7 then
     h.ok("pinned to the commit " .. c.ref:sub(1, 12) .. " (your setting)")
   else
-    h.warn(("ref `%s` is a branch or tag name: it can move, and the template may then not match what this plugin was tested with"):format(c.ref), {
-      "leave egui_template.ref unset for the pinned commit",
-    })
+    h.warn(
+      ("ref `%s` is a branch or tag name: it can move, and the template may then not match what this plugin was tested with"):format(
+        c.ref
+      ),
+      {
+        "leave egui_template.ref unset for the pinned commit",
+      }
+    )
   end
   if c.scheme == "https" then
     h.ok("https:// base URL")
   else
-    h.warn(c.scheme .. ":// base URL accepted through allow_insecure = true", { "use an https:// mirror, or a local path only for testing" })
+    h.warn(
+      c.scheme .. ":// base URL accepted through allow_insecure = true",
+      { "use an https:// mirror, or a local path only for testing" }
+    )
   end
   local dir = vim.fn.stdpath("cache") .. "/xyno-new"
-  h.info("download cache: " .. dir .. (vim.uv.fs_stat(dir .. "/egui-template.zip") and " (a template is cached for offline use)" or " (empty)"))
+  h.info(
+    "download cache: "
+      .. dir
+      .. (vim.uv.fs_stat(dir .. "/egui-template.zip") and " (a template is cached for offline use)" or " (empty)")
+  )
 end
 
 return M

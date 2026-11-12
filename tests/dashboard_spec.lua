@@ -79,9 +79,12 @@ describe("dashboard_keys", function()
 
   it("without Quit the entries go last; without an argument a new list comes back", function()
     local keys = N.dashboard_keys({ { key = "f", desc = "Find File", action = ":x" } })
-    H.eq({ "f", "b", "i", "w", "e" }, vim.tbl_map(function(k)
-      return k.key
-    end, keys))
+    H.eq(
+      { "f", "b", "i", "w", "e" },
+      vim.tbl_map(function(k)
+        return k.key
+      end, keys)
+    )
     local fresh = N.dashboard_keys()
     H.eq(4, #fresh)
   end)

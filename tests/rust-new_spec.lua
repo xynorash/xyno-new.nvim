@@ -258,7 +258,10 @@ describe("rust_new.inherit", function()
   local SAMPLE = '[package]\nname = "my-app"\nversion = "0.1.0"\nedition = "2024"\n\n[dependencies]\n'
 
   it("rewrites version and edition of cargo's own output, nothing else", function()
-    H.eq('[package]\nname = "my-app"\nversion.workspace = true\nedition.workspace = true\n\n[dependencies]\n', R.inherit(SAMPLE))
+    H.eq(
+      '[package]\nname = "my-app"\nversion.workspace = true\nedition.workspace = true\n\n[dependencies]\n',
+      R.inherit(SAMPLE)
+    )
   end)
 
   it("works on the text the installed cargo really writes", function()
@@ -287,7 +290,10 @@ describe("rust_new.inherit", function()
       '[package]\nname = "a"\nversion.workspace = true # keep\nedition = "2021"\n[dependencies]\nversion = "9"\n',
       R.inherit(t, { version = true })
     )
-    H.eq('[package]\r\nname = "a"\r\nversion.workspace = true\r\n', R.inherit('[package]\r\nname = "a"\r\nversion = "1"\r\n'))
+    H.eq(
+      '[package]\r\nname = "a"\r\nversion.workspace = true\r\n',
+      R.inherit('[package]\r\nname = "a"\r\nversion = "1"\r\n')
+    )
     H.eq(SAMPLE, R.inherit(SAMPLE, {}))
   end)
 end)
@@ -326,13 +332,17 @@ describe("rust_new.workspace_info / add_member_path", function()
 
   it("adds to a one-line list, keeping everything else", function()
     H.eq('[workspace]\nmembers = ["a", "crates/n"]\n', R.add_member_path('[workspace]\nmembers = ["a"]\n', "crates/n"))
-    H.eq('[workspace]\nmembers = [ "a", "crates/n" ]\n', R.add_member_path('[workspace]\nmembers = [ "a" ]\n', "crates/n"))
+    H.eq(
+      '[workspace]\nmembers = [ "a", "crates/n" ]\n',
+      R.add_member_path('[workspace]\nmembers = [ "a" ]\n', "crates/n")
+    )
     H.eq('[workspace]\nmembers = ["crates/n"]\n', R.add_member_path("[workspace]\nmembers = []\n", "crates/n"))
     H.eq('[workspace]\nmembers = ["a", "crates/n"]\n', R.add_member_path('[workspace]\nmembers = ["a",]\n', "crates/n"))
   end)
 
   it("adds a line to a multi-line list with its indent, comma and comments", function()
-    local t = '[workspace]\nresolver = "2"\nmembers = [\n    "a",\n    "b" # last\n]\n\n[workspace.package]\nversion = "0.1.0"\n'
+    local t =
+      '[workspace]\nresolver = "2"\nmembers = [\n    "a",\n    "b" # last\n]\n\n[workspace.package]\nversion = "0.1.0"\n'
     H.eq(
       '[workspace]\nresolver = "2"\nmembers = [\n    "a",\n    "b", # last\n    "crates/n",\n]\n\n[workspace.package]\nversion = "0.1.0"\n',
       R.add_member_path(t, "crates/n")
@@ -581,27 +591,30 @@ describe("rust_new.create_member (real cargo)", function()
     H.eq(0, run({ "cargo", "check", "--offline" }, parent .. "/g").code)
   end)
 
-  it("explicit list: the path is added once, formatting kept; a [workspace.package] without edition is respected", function()
-    local root = H.tmpdir()
-    write(
-      root .. "/Cargo.toml",
-      '[workspace]\nresolver = "2"\nmembers = [\n    "crates/a",\n]\n\n[workspace.package]\nversion = "0.3.0"\n'
-    )
-    write(root .. "/crates/a/Cargo.toml", '[package]\nname = "a"\nversion.workspace = true\nedition = "2021"\n')
-    write(root .. "/crates/a/src/lib.rs", "")
-    local err, info = member(root, "binary", "b-two")
-    H.is_nil(err)
-    local top = read(root .. "/Cargo.toml")
-    H.eq(1, select(2, top:gsub('"crates/b%-two"', "")), top)
-    H.has(top, '    "crates/a",\n    "crates/b-two",\n]')
-    H.eq({ "edition" }, info.not_inherited)
-    local pkg = read(root .. "/crates/b-two/Cargo.toml")
-    H.has(pkg, "version.workspace = true")
-    H.match(pkg, 'edition = "%d+"')
-    local meta = run({ "cargo", "metadata", "--no-deps", "--offline", "--format-version", "1" }, root)
-    H.eq(0, meta.code, meta.stderr)
-    H.eq(2, #vim.json.decode(meta.stdout).workspace_members)
-  end)
+  it(
+    "explicit list: the path is added once, formatting kept; a [workspace.package] without edition is respected",
+    function()
+      local root = H.tmpdir()
+      write(
+        root .. "/Cargo.toml",
+        '[workspace]\nresolver = "2"\nmembers = [\n    "crates/a",\n]\n\n[workspace.package]\nversion = "0.3.0"\n'
+      )
+      write(root .. "/crates/a/Cargo.toml", '[package]\nname = "a"\nversion.workspace = true\nedition = "2021"\n')
+      write(root .. "/crates/a/src/lib.rs", "")
+      local err, info = member(root, "binary", "b-two")
+      H.is_nil(err)
+      local top = read(root .. "/Cargo.toml")
+      H.eq(1, select(2, top:gsub('"crates/b%-two"', "")), top)
+      H.has(top, '    "crates/a",\n    "crates/b-two",\n]')
+      H.eq({ "edition" }, info.not_inherited)
+      local pkg = read(root .. "/crates/b-two/Cargo.toml")
+      H.has(pkg, "version.workspace = true")
+      H.match(pkg, 'edition = "%d+"')
+      local meta = run({ "cargo", "metadata", "--no-deps", "--offline", "--format-version", "1" }, root)
+      H.eq(0, meta.code, meta.stderr)
+      H.eq(2, #vim.json.decode(meta.stdout).workspace_members)
+    end
+  )
 
   it("rejects a name that collides with an existing member (hyphen or underscore) and a taken directory", function()
     local parent = H.tmpdir()
@@ -723,7 +736,9 @@ describe("rust_new failure paths", function()
     need_cargo()
     local real = vim.fn.exepath("cargo")
     local parent = H.tmpdir()
-    stub_cargo(('case "$*" in *probe*) exec "%s" "$@";; esac\necho "error: member step failed" >&2\nexit 101'):format(real))
+    stub_cargo(
+      ('case "$*" in *probe*) exec "%s" "$@";; esac\necho "error: member step failed" >&2\nexit 101'):format(real)
+    )
     local err = wait_cb(function(cb)
       R.create_workspace({ name = "half", parent = parent .. "/x/y", kind = "library", member = "half-core" }, cb)
     end)
@@ -890,9 +905,13 @@ describe(":RustNew* prompts", function()
     try("RustNewWorkspace", { "a", parent, false }, { "binary" }, 3) -- the member name
     vim.wait(200)
     H.eq({}, vim.fn.readdir(parent))
-    H.eq({}, vim.tbl_filter(function(m)
-      return tostring(m.msg):find("RustNew", 1, true)
-    end, cap.list), "no RustNew notification at all")
+    H.eq(
+      {},
+      vim.tbl_filter(function(m)
+        return tostring(m.msg):find("RustNew", 1, true)
+      end, cap.list),
+      "no RustNew notification at all"
+    )
   end)
 
   it("workspace: name, parent, kind FIRST, then the member name prefilled with -app / -core", function()
@@ -983,9 +1002,12 @@ describe(":RustNew* prompts", function()
     vim.wait(100)
     H.eq(0, #log2)
     H.ok(find_msg(cap, "not a workspace with a members list", vim.log.levels.ERROR), vim.inspect(cap.list))
-    H.eq({ "src" }, vim.tbl_filter(function(n)
-      return n == "src"
-    end, vim.fn.readdir(lone .. "/lone")))
+    H.eq(
+      { "src" },
+      vim.tbl_filter(function(n)
+        return n == "src"
+      end, vim.fn.readdir(lone .. "/lone"))
+    )
     H.is_nil(vim.uv.fs_stat(lone .. "/lone/crates"))
   end)
 
@@ -995,7 +1017,10 @@ describe(":RustNew* prompts", function()
     vim.cmd("RustNewBin")
     -- the run of the first one is in flight (async)
     vim.cmd("RustNewBin")
-    H.ok(find_msg(cap, "being created already", vim.log.levels.WARN) or find_msg(cap, "created "), vim.inspect(cap.list))
+    H.ok(
+      find_msg(cap, "being created already", vim.log.levels.WARN) or find_msg(cap, "created "),
+      vim.inspect(cap.list)
+    )
     H.wait_for(function()
       return find_msg(cap, "created ")
     end, 60000, "first created")
@@ -1008,7 +1033,21 @@ describe("rust_new.workspace_name", function()
   it("takes the package rules, refuses the hyphen at the end and a name too long for its default member", function()
     H.eq("my-ws", (R.workspace_name(" my-ws ")))
     H.ok(R.workspace_name(("a"):rep(59)))
-    for _, bad in ipairs({ "ws-", ("a"):rep(60), ("a"):rep(64), "", "fn", "-x", "a b", "1ws", "nul", "CON", "com1", "LPT9", "aux" }) do
+    for _, bad in ipairs({
+      "ws-",
+      ("a"):rep(60),
+      ("a"):rep(64),
+      "",
+      "fn",
+      "-x",
+      "a b",
+      "1ws",
+      "nul",
+      "CON",
+      "com1",
+      "LPT9",
+      "aux",
+    }) do
       local n, why = R.workspace_name(bad)
       H.is_nil(n, "'" .. bad .. "' must be refused")
       H.ok(type(why) == "string" and why ~= "", "a reason for '" .. bad .. "'")
@@ -1083,17 +1122,29 @@ describe("rust_new: dotted and inline workspace keys", function()
 
   it("add_member_path edits the dotted spelling in place", function()
     H.eq('workspace.members = ["a", "crates/n"]\n', R.add_member_path('workspace.members = ["a"]\n', "crates/n"))
-    H.eq('workspace.members = [\n  "a",\n  "crates/n",\n]\n[package]\nname = "x"\n', R.add_member_path('workspace.members = [\n  "a",\n]\n[package]\nname = "x"\n', "crates/n"))
-    H.eq('workspace = { members = ["a", "crates/n"] }\n', R.add_member_path('workspace = { members = ["a"] }\n', "crates/n"))
+    H.eq(
+      'workspace.members = [\n  "a",\n  "crates/n",\n]\n[package]\nname = "x"\n',
+      R.add_member_path('workspace.members = [\n  "a",\n]\n[package]\nname = "x"\n', "crates/n")
+    )
+    H.eq(
+      'workspace = { members = ["a", "crates/n"] }\n',
+      R.add_member_path('workspace = { members = ["a"] }\n', "crates/n")
+    )
     local t = 'workspace.members = ["crates/*"]\n'
     H.eq(t, R.add_member_path(t, "crates/n"), "already covered by the glob")
   end)
 
   it("workspace.package keys count in every spelling", function()
-    H.eq({ version = true, edition = true }, R.workspace_info('[workspace]\nmembers = []\n[workspace.package]\nversion = "1"\nedition = "2021"\n').inherits)
+    H.eq(
+      { version = true, edition = true },
+      R.workspace_info('[workspace]\nmembers = []\n[workspace.package]\nversion = "1"\nedition = "2021"\n').inherits
+    )
     H.eq({ version = true }, R.workspace_info('workspace.members = []\nworkspace.package.version = "1"\n').inherits)
     H.eq({ edition = true }, R.workspace_info('[workspace]\nmembers = []\npackage.edition = "2021"\n').inherits)
-    H.eq({ version = true, edition = true }, R.workspace_info('[workspace]\nmembers = []\npackage = { version = "1", edition = "2021" }\n').inherits)
+    H.eq(
+      { version = true, edition = true },
+      R.workspace_info('[workspace]\nmembers = []\npackage = { version = "1", edition = "2021" }\n').inherits
+    )
     H.eq({}, R.workspace_info('[workspace]\nmembers = []\n[package]\nversion = "1"\n').inherits)
   end)
 
@@ -1113,9 +1164,35 @@ describe("workspace template options", function()
 
   it("validate_workspace names every problem", function()
     H.eq({}, R.validate_workspace({}))
-    H.eq({}, R.validate_workspace({ members_dir = "libs", version = "1.2.3-alpha.1", gitignore = "", git = false, git_branch = "trunk" }))
-    local p = table.concat(R.validate_workspace({ members_dir = "../x", version = "one", gitignore = 3, git = "yes", git_branch = "a..b", nothing = 1 }), "\n")
-    for _, frag in ipairs({ "members_dir", "version", "gitignore", "workspace.git must", "git_branch", "unknown workspace option `nothing`" }) do
+    H.eq(
+      {},
+      R.validate_workspace({
+        members_dir = "libs",
+        version = "1.2.3-alpha.1",
+        gitignore = "",
+        git = false,
+        git_branch = "trunk",
+      })
+    )
+    local p = table.concat(
+      R.validate_workspace({
+        members_dir = "../x",
+        version = "one",
+        gitignore = 3,
+        git = "yes",
+        git_branch = "a..b",
+        nothing = 1,
+      }),
+      "\n"
+    )
+    for _, frag in ipairs({
+      "members_dir",
+      "version",
+      "gitignore",
+      "workspace.git must",
+      "git_branch",
+      "unknown workspace option `nothing`",
+    }) do
       H.match(p, frag, true)
     end
     H.match(table.concat(R.validate_workspace({ members_dir = "target" }), ""), "members_dir", true)

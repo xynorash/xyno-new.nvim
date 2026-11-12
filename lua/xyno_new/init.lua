@@ -56,7 +56,13 @@ M.requires_rust_api = "1.1"
 local function rust_api_ok(name)
   local ok, rust = pcall(require, "xyno_rust")
   if not ok or type(rust.compatible) ~= "function" then
-    vim.notify(name .. ": the installed xyno-rust.nvim is too old to say which API it has (needs API " .. M.requires_rust_api .. "): update xyno-rust.nvim", vim.log.levels.ERROR)
+    vim.notify(
+      name
+        .. ": the installed xyno-rust.nvim is too old to say which API it has (needs API "
+        .. M.requires_rust_api
+        .. "): update xyno-rust.nvim",
+      vim.log.levels.ERROR
+    )
     return false
   end
   local good, why = rust.compatible(M.requires_rust_api)
@@ -83,7 +89,11 @@ function M.setup(opts)
   local rs = require("xyno_new.rust")
   local wp = rs.validate_workspace(opts.workspace)
   if #wp > 0 then
-    vim.notify("xyno-new.nvim: invalid options, workspace template ignored:\n  " .. table.concat(wp, "\n  "), vim.log.levels.ERROR, { title = "xyno-new" })
+    vim.notify(
+      "xyno-new.nvim: invalid options, workspace template ignored:\n  " .. table.concat(wp, "\n  "),
+      vim.log.levels.ERROR,
+      { title = "xyno-new" }
+    )
     rs.set_workspace({})
   else
     rs.set_workspace(opts.workspace)
@@ -107,7 +117,11 @@ function M.setup(opts)
       end
     end
     if #bad > 0 then
-      vim.notify("xyno-new.nvim: invalid options, egui_template ignored:\n  " .. table.concat(bad, "\n  "), vim.log.levels.ERROR, { title = "xyno-new" })
+      vim.notify(
+        "xyno-new.nvim: invalid options, egui_template ignored:\n  " .. table.concat(bad, "\n  "),
+        vim.log.levels.ERROR,
+        { title = "xyno-new" }
+      )
     else
       vim.g.xyno_new_egui_template = opts.egui_template
     end
@@ -116,7 +130,11 @@ function M.setup(opts)
     local tpl = require("xyno_new.templates")
     local list, bad = tpl.validate(opts.templates)
     if #bad > 0 then
-      vim.notify("xyno-new.nvim: invalid options, these templates are ignored:\n  " .. table.concat(bad, "\n  "), vim.log.levels.ERROR, { title = "xyno-new" })
+      vim.notify(
+        "xyno-new.nvim: invalid options, these templates are ignored:\n  " .. table.concat(bad, "\n  "),
+        vim.log.levels.ERROR,
+        { title = "xyno-new" }
+      )
     end
     tpl.set(list)
   end

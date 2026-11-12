@@ -38,7 +38,15 @@ if not spec then
   os.exit(total.failed > 0 and 1 or 0)
 end
 
-package.path = repo .. "/lua/?.lua;" .. repo .. "/lua/?/init.lua;" .. rust .. "/lua/?.lua;" .. rust .. "/lua/?/init.lua;" .. package.path
+package.path = repo
+  .. "/lua/?.lua;"
+  .. repo
+  .. "/lua/?/init.lua;"
+  .. rust
+  .. "/lua/?.lua;"
+  .. rust
+  .. "/lua/?/init.lua;"
+  .. package.path
 for _, name in ipairs({ "helpers", "harness" }) do
   package.preload["xyno_new_test." .. name] = function()
     return dofile(repo .. "/tests/" .. name .. ".lua")

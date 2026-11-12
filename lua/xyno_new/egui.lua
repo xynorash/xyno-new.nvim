@@ -53,7 +53,11 @@ end
 -- names Windows cannot use for a file or directory (cargo refuses them as package names there);
 -- refused everywhere, so a project made on Linux can be checked out on Windows
 local WINDOWS_RESERVED = {}
-for w in ("con prn aux nul com1 com2 com3 com4 com5 com6 com7 com8 com9 lpt1 lpt2 lpt3 lpt4 lpt5 lpt6 lpt7 lpt8 lpt9"):gmatch("%S+") do
+for w in
+  ("con prn aux nul com1 com2 com3 com4 com5 com6 com7 com8 com9 lpt1 lpt2 lpt3 lpt4 lpt5 lpt6 lpt7 lpt8 lpt9"):gmatch(
+    "%S+"
+  )
+do
   WINDOWS_RESERVED[w] = true
 end
 
@@ -510,7 +514,10 @@ local function cfg()
   end
   if scheme ~= "https" and not c.allow_insecure then
     return nil,
-      ("vim.g.xyno_new_egui_template.base_url uses %s://, which is refused by default (the template would travel unencrypted or come from a local path): use https://, or set allow_insecure = true to accept %s://"):format(scheme, scheme)
+      ("vim.g.xyno_new_egui_template.base_url uses %s://, which is refused by default (the template would travel unencrypted or come from a local path): use https://, or set allow_insecure = true to accept %s://"):format(
+        scheme,
+        scheme
+      )
   end
   if scheme ~= "file" and rest:match("^[^/]*@") then
     return nil, "vim.g.xyno_new_egui_template.base_url must not contain credentials (user@host)"
@@ -612,11 +619,27 @@ local function fetch(tmp)
   progress(("%s %s/%s ..."):format(have and etag and "checking" or "downloading", c.repo, c.ref))
   local out, hdr = tmp .. "/download.zip", tmp .. "/headers.txt"
   local cmd = {
-    "curl", "--silent", "--show-error", "--fail", "--location",
-    "--proto", c.proto, "--proto-redir", c.proto,
-    "--max-time", "60", "--max-filesize", "30000000",
-    "--user-agent", UA,
-    "--dump-header", hdr, "--output", out, "--write-out", "%{http_code}",
+    "curl",
+    "--silent",
+    "--show-error",
+    "--fail",
+    "--location",
+    "--proto",
+    c.proto,
+    "--proto-redir",
+    c.proto,
+    "--max-time",
+    "60",
+    "--max-filesize",
+    "30000000",
+    "--user-agent",
+    UA,
+    "--dump-header",
+    hdr,
+    "--output",
+    out,
+    "--write-out",
+    "%{http_code}",
   }
   if have and etag then
     vim.list_extend(cmd, { "--header", "If-None-Match: " .. etag })
@@ -652,7 +675,8 @@ local function fetch(tmp)
   if have then
     vim.notify(
       ("EguiNew: could not reach %s (%s): using the cached template (it may be out of date)"):format(
-        c.url, vim.trim((r.stderr or ""):match("[^\n]+") or "curl failed")
+        c.url,
+        vim.trim((r.stderr or ""):match("[^\n]+") or "curl failed")
       ),
       vim.log.levels.WARN,
       { title = "EguiNew" }
@@ -661,7 +685,8 @@ local function fetch(tmp)
   end
   fail(
     ("could not download the template from %s: %s (no cached copy to fall back on)"):format(
-      c.url, vim.trim((r.stderr or ""):match("[^\n]+") or ("curl exit " .. tostring(r.code)))
+      c.url,
+      vim.trim((r.stderr or ""):match("[^\n]+") or ("curl exit " .. tostring(r.code)))
     )
   )
 end
@@ -677,8 +702,13 @@ local function unpack(zip, tmp)
     fail("the template archive is not a valid ZIP file")
   end
   for name in (l.stdout or ""):gmatch("[^\n]+") do
-    if name:sub(1, 1) == "/" or name:find("\\", 1, true) or name:match("^%.%.$") or name:match("^%.%./")
-      or name:find("/%.%./") or name:match("/%.%.$")
+    if
+      name:sub(1, 1) == "/"
+      or name:find("\\", 1, true)
+      or name:match("^%.%.$")
+      or name:match("^%.%./")
+      or name:find("/%.%./")
+      or name:match("/%.%.$")
     then
       fail("the template archive has an unsafe entry: " .. name)
     end
@@ -756,7 +786,7 @@ function M.parse_rust_version(text)
     if sect then
       in_package = vim.trim(sect) == "package"
     elseif in_package then
-      local v = line:match("^%s*rust%-version%s*=%s*\"([^\"]*)\"") or line:match("^%s*rust%-version%s*=%s*'([^']*)'")
+      local v = line:match('^%s*rust%-version%s*=%s*"([^"]*)"') or line:match("^%s*rust%-version%s*=%s*'([^']*)'")
       if v then
         return v
       end
@@ -796,16 +826,27 @@ function M.check_rust_version(dir, done)
     vim.schedule(function()
       local have = o.code == 0 and M.parse_rustc(o.stdout) or nil
       if o.code ~= 0 then
-        rv_notify(("could not run rustc to check the minimum Rust version (%s) this project needs"):format(need_s), vim.log.levels.WARN)
+        rv_notify(
+          ("could not run rustc to check the minimum Rust version (%s) this project needs"):format(need_s),
+          vim.log.levels.WARN
+        )
         return done("missing")
       end
       if not have then
-        rv_notify(("could not read the rustc version; this project needs Rust >= %s"):format(need_s), vim.log.levels.WARN)
+        rv_notify(
+          ("could not read the rustc version; this project needs Rust >= %s"):format(need_s),
+          vim.log.levels.WARN
+        )
         return done("unparsable")
       end
       if M.older(have, need) then
         rv_notify(
-          ("this project needs Rust >= %s (you have %d.%d.%d): run rustup update stable"):format(need_s, have[1], have[2], have[3]),
+          ("this project needs Rust >= %s (you have %d.%d.%d): run rustup update stable"):format(
+            need_s,
+            have[1],
+            have[2],
+            have[3]
+          ),
           vim.log.levels.WARN
         )
         return done("old")

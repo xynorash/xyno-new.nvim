@@ -21,14 +21,17 @@ local function make_template()
   write(d .. "/blob.bin", "\0{{name}}\0")
   write(d .. "/.git/config", "[core]\n")
   write(d .. "/target/x", "junk")
-  write(d .. "/cargo-generate.toml", "[template]\ncargo_generate_version = \">=0.9\"\n")
+  write(d .. "/cargo-generate.toml", '[template]\ncargo_generate_version = ">=0.9"\n')
   return d
 end
 
 describe("validate", function()
   it("accepts path and pinned git entries", function()
     local rev = ("a"):rep(40)
-    local list, bad = T.validate({ { name = "a", path = "~/x", description = "d" }, { name = "b", git = "https://example.org/t", rev = rev } })
+    local list, bad = T.validate({
+      { name = "a", path = "~/x", description = "d" },
+      { name = "b", git = "https://example.org/t", rev = rev },
+    })
     H.eq({}, bad)
     H.eq(2, #list)
   end)
@@ -54,19 +57,25 @@ describe("fill / scan / copy", function()
     H.eq("{{other}}", T.fill("{{other}}", "x"))
   end)
 
-  it("copies text with placeholders replaced, file names too, skips .git / target / cargo-generate.toml, keeps binaries", function()
-    local src = make_template()
-    local dest = H.tmpdir() .. "/out"
-    local made = assert(T.copy(src, dest, "my-app"))
-    H.has(made, "my-app.md")
-    H.eq('[package]\nname = "my-app"\nversion = "0.1.0"\nedition = "2021"\n', io.open(dest .. "/Cargo.toml"):read("*a"))
-    H.match(io.open(dest .. "/src/main.rs"):read("*a"), "My App / my_app", true)
-    H.eq("# my-app\n", io.open(dest .. "/my-app.md"):read("*a"))
-    H.eq("\0{{name}}\0", io.open(dest .. "/blob.bin", "rb"):read("*a"))
-    H.is_nil(vim.uv.fs_stat(dest .. "/.git"))
-    H.is_nil(vim.uv.fs_stat(dest .. "/target"))
-    H.is_nil(vim.uv.fs_stat(dest .. "/cargo-generate.toml"))
-  end)
+  it(
+    "copies text with placeholders replaced, file names too, skips .git / target / cargo-generate.toml, keeps binaries",
+    function()
+      local src = make_template()
+      local dest = H.tmpdir() .. "/out"
+      local made = assert(T.copy(src, dest, "my-app"))
+      H.has(made, "my-app.md")
+      H.eq(
+        '[package]\nname = "my-app"\nversion = "0.1.0"\nedition = "2021"\n',
+        io.open(dest .. "/Cargo.toml"):read("*a")
+      )
+      H.match(io.open(dest .. "/src/main.rs"):read("*a"), "My App / my_app", true)
+      H.eq("# my-app\n", io.open(dest .. "/my-app.md"):read("*a"))
+      H.eq("\0{{name}}\0", io.open(dest .. "/blob.bin", "rb"):read("*a"))
+      H.is_nil(vim.uv.fs_stat(dest .. "/.git"))
+      H.is_nil(vim.uv.fs_stat(dest .. "/target"))
+      H.is_nil(vim.uv.fs_stat(dest .. "/cargo-generate.toml"))
+    end
+  )
 
   it("refuses scripts, hooks and symlinks (nothing is created)", function()
     local a = make_template()
@@ -124,8 +133,12 @@ describe("git templates", function()
     end
     local d, first = repo()
     local out
-    T.create({ name = "g", git = d, rev = first }, "pinned", H.tmpdir(), function(err, dir) out = { err = err, dir = dir } end)
-    H.wait_for(function() return out end, 30000, "clone")
+    T.create({ name = "g", git = d, rev = first }, "pinned", H.tmpdir(), function(err, dir)
+      out = { err = err, dir = dir }
+    end)
+    H.wait_for(function()
+      return out
+    end, 30000, "clone")
     H.is_nil(out.err)
     H.match(io.open(out.dir .. "/src/main.rs"):read("*a"), "Pinned / pinned", true)
     H.is_nil(vim.uv.fs_stat(out.dir .. "/.git"))
@@ -138,8 +151,12 @@ describe("git templates", function()
     local d = repo()
     local parent = H.tmpdir()
     local out
-    T.create({ name = "g", git = d, rev = ("0"):rep(40) }, "nope", parent, function(err) out = { err = err } end)
-    H.wait_for(function() return out end, 30000, "clone")
+    T.create({ name = "g", git = d, rev = ("0"):rep(40) }, "nope", parent, function(err)
+      out = { err = err }
+    end)
+    H.wait_for(function()
+      return out
+    end, 30000, "clone")
     H.match(out.err, "git:", true)
     H.is_nil(vim.uv.fs_stat(parent .. "/nope"))
   end)
@@ -150,16 +167,27 @@ describe(":RustNewFrom", function()
     local src = make_template()
     T.set((T.validate({ { name = "svc", path = src, description = "demo" } })))
     local e = T.entries()
-    H.eq({ "binary", "library", "workspace", "member", "egui", "svc" }, vim.tbl_map(function(x) return x.label end, e))
+    H.eq(
+      { "binary", "library", "workspace", "member", "egui", "svc" },
+      vim.tbl_map(function(x)
+        return x.label
+      end, e)
+    )
     local parent = H.tmpdir()
     local orig = vim.ui.input
     local answers = { "demo-app", parent }
-    vim.ui.input = function(_, cb) cb(table.remove(answers, 1)) end
+    vim.ui.input = function(_, cb)
+      cb(table.remove(answers, 1))
+    end
     local n = {}
     local orig_notify = vim.notify
-    vim.notify = function(m) n[#n + 1] = m end
+    vim.notify = function(m)
+      n[#n + 1] = m
+    end
     vim.cmd("RustNewFrom svc")
-    H.wait_for(function() return vim.uv.fs_stat(parent .. "/demo-app/Cargo.toml") end, 5000, "project")
+    H.wait_for(function()
+      return vim.uv.fs_stat(parent .. "/demo-app/Cargo.toml")
+    end, 5000, "project")
     vim.ui.input = orig
     vim.notify = orig_notify
     H.match(io.open(parent .. "/demo-app/Cargo.toml"):read("*a"), 'name = "demo-app"', true)
@@ -170,7 +198,9 @@ describe(":RustNewFrom", function()
     T.set({})
     local n = {}
     local o = vim.notify
-    vim.notify = function(m) n[#n + 1] = m end
+    vim.notify = function(m)
+      n[#n + 1] = m
+    end
     vim.cmd("RustNewFrom nope")
     vim.notify = o
     H.match(n[1], "no template", true)

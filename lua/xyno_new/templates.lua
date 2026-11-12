@@ -46,13 +46,30 @@ function M.validate(list)
       bad[#bad + 1] = where .. " needs exactly one of `path` or `git`"
     elseif t.path ~= nil and type(t.path) ~= "string" then
       bad[#bad + 1] = where .. ".path must be a string"
-    elseif t.git ~= nil and (type(t.git) ~= "string" or type(t.rev) ~= "string" or not t.rev:match("^%x+$") or #t.rev ~= 40) then
+    elseif
+      t.git ~= nil and (type(t.git) ~= "string" or type(t.rev) ~= "string" or not t.rev:match("^%x+$") or #t.rev ~= 40)
+    then
       bad[#bad + 1] = where .. " git templates need `rev` = a full 40-hex commit (a branch name can move)"
-    elseif t.git and not (t.git:match("^https://") or t.git:match("^ssh://") or t.git:match("^git@") or t.git:match("^file://") or t.git:match("^/")) then
+    elseif
+      t.git
+      and not (
+        t.git:match("^https://")
+        or t.git:match("^ssh://")
+        or t.git:match("^git@")
+        or t.git:match("^file://")
+        or t.git:match("^/")
+      )
+    then
       bad[#bad + 1] = where .. ".git must be an https://, ssh://, git@ or local address"
     else
       seen[t.name] = true
-      out[#out + 1] = { name = t.name, path = t.path, git = t.git, rev = t.rev, description = type(t.description) == "string" and t.description or nil }
+      out[#out + 1] = {
+        name = t.name,
+        path = t.path,
+        git = t.git,
+        rev = t.rev,
+        description = type(t.description) == "string" and t.description or nil,
+      }
     end
   end
   return out, bad
@@ -75,9 +92,18 @@ end
 --- Replace the three placeholders.
 function M.fill(text, name)
   local crate = name:gsub("%-", "_")
-  return (text:gsub("{{%s*name%s*}}", function() return name end)
-    :gsub("{{%s*crate_name%s*}}", function() return crate end)
-    :gsub("{{%s*title%s*}}", function() return title_of(name) end))
+  return (
+    text
+      :gsub("{{%s*name%s*}}", function()
+        return name
+      end)
+      :gsub("{{%s*crate_name%s*}}", function()
+        return crate
+      end)
+      :gsub("{{%s*title%s*}}", function()
+        return title_of(name)
+      end)
+  )
 end
 
 --- Walk a template directory. Returns the list of { rel, abs } files, or nil and the reason it is refused.
@@ -106,7 +132,8 @@ function M.scan(root)
           total = total + st.size
           files[#files + 1] = { rel = r, abs = abs, size = st.size }
           if #files > M.MAX_FILES or total > M.MAX_BYTES then
-            return nil, "is larger than the limit (" .. M.MAX_FILES .. " files, " .. math.floor(M.MAX_BYTES / 1048576) .. " MB)"
+            return nil,
+              "is larger than the limit (" .. M.MAX_FILES .. " files, " .. math.floor(M.MAX_BYTES / 1048576) .. " MB)"
           end
         end
       end
@@ -128,7 +155,9 @@ function M.scan(root)
   if not ok then
     return nil, why
   end
-  table.sort(files, function(a, b) return a.rel < b.rel end)
+  table.sort(files, function(a, b)
+    return a.rel < b.rel
+  end)
   return files
 end
 
@@ -192,7 +221,19 @@ function M.fetch(t, cb)
       end)
     end)
   end
-  run({ "git", "-c", "core.hooksPath=/dev/null", "-c", "protocol.ext.allow=never", "clone", "--no-checkout", "--quiet", "--", t.git, tmp }, function()
+  run({
+    "git",
+    "-c",
+    "core.hooksPath=/dev/null",
+    "-c",
+    "protocol.ext.allow=never",
+    "clone",
+    "--no-checkout",
+    "--quiet",
+    "--",
+    t.git,
+    tmp,
+  }, function()
     run({ "git", "-C", tmp, "-c", "advice.detachedHead=false", "checkout", "--quiet", t.rev }, function()
       cb(tmp)
     end)
@@ -232,11 +273,41 @@ function M.create(t, name, parent, cb)
 end
 
 local BUILTIN = {
-  { name = "binary", desc = "cargo new --bin", run = function() R.new_project("binary") end },
-  { name = "library", desc = "cargo new --lib", run = function() R.new_project("library") end },
-  { name = "workspace", desc = "workspace with a first member", run = function() R.new_workspace() end },
-  { name = "member", desc = "member crate in this workspace", run = function() R.new_member() end },
-  { name = "egui", desc = "eframe template (pinned)", run = function() vim.cmd("EguiNew") end },
+  {
+    name = "binary",
+    desc = "cargo new --bin",
+    run = function()
+      R.new_project("binary")
+    end,
+  },
+  {
+    name = "library",
+    desc = "cargo new --lib",
+    run = function()
+      R.new_project("library")
+    end,
+  },
+  {
+    name = "workspace",
+    desc = "workspace with a first member",
+    run = function()
+      R.new_workspace()
+    end,
+  },
+  {
+    name = "member",
+    desc = "member crate in this workspace",
+    run = function()
+      R.new_member()
+    end,
+  },
+  {
+    name = "egui",
+    desc = "eframe template (pinned)",
+    run = function()
+      vim.cmd("EguiNew")
+    end,
+  },
 }
 
 function M.entries()
@@ -339,7 +410,14 @@ function M.setup()
   end, {
     nargs = "?",
     complete = function(lead)
-      return vim.tbl_filter(function(l) return l:find(lead, 1, true) == 1 end, vim.tbl_map(function(e) return e.label end, M.entries()))
+      return vim.tbl_filter(
+        function(l)
+          return l:find(lead, 1, true) == 1
+        end,
+        vim.tbl_map(function(e)
+          return e.label
+        end, M.entries())
+      )
     end,
     desc = "New project from a pinned template (built-in kinds and your template list)",
   })

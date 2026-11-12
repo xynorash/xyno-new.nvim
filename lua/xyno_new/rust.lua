@@ -122,7 +122,8 @@ function M.validate_workspace(t)
       p[#p + 1] = ("unknown workspace option `%s`"):format(tostring(k))
     elseif k == "members_dir" then
       if not (type(v) == "string" and v:match("^[%w_][%w._-]*$") and v ~= "target" and v ~= ".." and #v <= 64) then
-        p[#p + 1] = "workspace.members_dir must be one plain directory name (letters, digits, `_`, `-`, `.`; not `target`)"
+        p[#p + 1] =
+          "workspace.members_dir must be one plain directory name (letters, digits, `_`, `-`, `.`; not `target`)"
       end
     elseif k == "version" then
       if not (type(v) == "string" and v:match("^%d+%.%d+%.%d+[%w.+-]*$") and #v <= 64) then
@@ -137,7 +138,15 @@ function M.validate_workspace(t)
         p[#p + 1] = "workspace.git must be true or false"
       end
     elseif k == "git_branch" then
-      if not (type(v) == "string" and v:match("^[%w][%w._/-]*$") and not v:find("..", 1, true) and not v:match("[/.]$") and #v <= 64) then
+      if
+        not (
+          type(v) == "string"
+          and v:match("^[%w][%w._/-]*$")
+          and not v:find("..", 1, true)
+          and not v:match("[/.]$")
+          and #v <= 64
+        )
+      then
         p[#p + 1] = "workspace.git_branch must be a plain branch name"
       end
     end
@@ -334,7 +343,12 @@ end
 local function workspace_package_keys(text)
   local keys = {}
   each_key(text, function(path, value_pos, line)
-    if #path == 3 and path[1] == "workspace" and path[2] == "package" and (path[3] == "version" or path[3] == "edition") then
+    if
+      #path == 3
+      and path[1] == "workspace"
+      and path[2] == "package"
+      and (path[3] == "version" or path[3] == "edition")
+    then
       keys[path[3]] = true
     elseif path_is(path, "workspace", "package") and line:sub(value_pos):match("^%s*{") then
       for _, k in ipairs({ "version", "edition" }) do
@@ -784,8 +798,17 @@ function M.layout(info)
   local mf = main_file(info.kind)
   return table.concat({
     info.name .. "/",
-    "  Cargo.toml        [workspace] resolver " .. info.resolver .. ', members = ["' .. (info.members_dir or "crates") .. '/*"], edition ' .. info.edition,
-    "  .gitignore        " .. ((info.gitignore or "/target"):match("^[^\n]*") ~= "" and (info.gitignore or "/target"):match("^[^\n]*") or "(empty first line)"),
+    "  Cargo.toml        [workspace] resolver "
+      .. info.resolver
+      .. ', members = ["'
+      .. (info.members_dir or "crates")
+      .. '/*"], edition '
+      .. info.edition,
+    "  .gitignore        "
+      .. (
+        (info.gitignore or "/target"):match("^[^\n]*") ~= "" and (info.gitignore or "/target"):match("^[^\n]*")
+        or "(empty first line)"
+      ),
     "  " .. (info.members_dir or "crates") .. "/" .. info.member .. "/",
     "    Cargo.toml      version and edition inherited",
     "    " .. mf,
@@ -822,7 +845,9 @@ function M.finish_member(info)
     lines[#lines + 1] = ("next: `cargo run -p %s`"):format(info.member)
   end
   if #info.not_inherited > 0 then
-    lines[#lines + 1] = "[workspace.package] has no " .. table.concat(info.not_inherited, " / ") .. ": kept in the member"
+    lines[#lines + 1] = "[workspace.package] has no "
+      .. table.concat(info.not_inherited, " / ")
+      .. ": kept in the member"
   end
   notify(table.concat(lines, "\n"))
 end
