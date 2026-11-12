@@ -47,9 +47,27 @@ Because the commands are listed in `cmd`, lazy.nvim loads the plugin when you ru
   keymaps = false,             -- false | true | { bin = lhs, lib = lhs, ... } (global, normal mode)
   projects_dir = nil,          -- parent directory offered by the prompts; nil: ~/projects if it exists, else the cwd
   egui_template = nil,         -- { repo = "emilk/eframe_template", ref = <pinned commit>, base_url = "https://github.com", allow_insecure = false }
+  workspace = {},              -- template of :RustNewWorkspace, see the table below
   egui_build_after_new = nil,  -- true: run `cargo build` in a snacks terminal after :EguiNew
 }
 ```
+
+| option | default | meaning |
+| --- | --- | --- |
+| `commands` | `true` | define the five commands |
+| `keymaps` | `false` | `true` or a table of the keys you want |
+| `projects_dir` | `~/projects` if it exists, else the cwd | parent directory the prompts offer |
+| `egui_template.repo` / `ref` / `base_url` / `allow_insecure` | `emilk/eframe_template` / pinned commit / `https://github.com` / `false` | where `:EguiNew` downloads the template from |
+| `egui_build_after_new` | `nil` | `true`: `cargo build` in a snacks terminal afterwards |
+| `workspace.members_dir` | `"crates"` | directory of the members; the manifest lists `"<dir>/*"` |
+| `workspace.version` | `"0.1.0"` | `[workspace.package] version` |
+| `workspace.gitignore` | `"/target\n"` | content of the workspace `.gitignore` (at most 4096 bytes) |
+| `workspace.git` | `true` | run `git init` in the new workspace |
+| `workspace.git_branch` | `"main"` | its initial branch |
+
+The options are validated: an invalid `egui_template` or `workspace` is refused as a whole with one error line naming every problem (the defaults stay); a second `setup()` replaces the first one's workspace template.
+
+Highlights: this plugin draws no window of its own (the prompts are `vim.ui.input` / `vim.ui.select`, the dashboard entries are snacks'), so it defines no `XynoNew*` groups; they follow your UI plugin and colorscheme.
 
 `projects_dir`, `egui_template` and `egui_build_after_new` are stored in `vim.g.xyno_new_projects_dir`, `vim.g.xyno_new_egui_template` and `vim.g.xyno_new_egui_build_after_new`, which the modules read; you can set those variables directly instead. `egui_template.base_url` must be an `https://` URL. `http://` and `file://` are refused unless you set `egui_template.allow_insecure = true` (a mirror on a trusted network, or a local copy for tests; the specs use it); a URL with credentials (`user@host`) is refused. The refusal happens before any request.
 

@@ -206,3 +206,27 @@ describe("xyno-rust.nvim API pin", function()
     H.match(notes[1].msg, "update xyno-rust.nvim", true)
   end)
 end)
+
+describe("workspace option", function()
+  local R = require("xyno_new.rust")
+  after_each(function()
+    R.set_workspace({})
+  end)
+
+  it("is applied by setup() and a bad one is refused as a whole with one error", function()
+    local notes, orig = {}, vim.notify
+    vim.notify = function(msg, level)
+      notes[#notes + 1] = { msg = msg, level = level }
+    end
+    local ok = pcall(N.setup, { workspace = { members_dir = "libs" } })
+    H.ok(ok)
+    H.eq(0, #notes)
+    H.eq("libs", R.workspace.members_dir)
+    pcall(N.setup, { workspace = { members_dir = "a/b", version = "x" } })
+    vim.notify = orig
+    H.eq(1, #notes)
+    H.eq(vim.log.levels.ERROR, notes[1].level)
+    H.match(notes[1].msg, "workspace template ignored", true)
+    H.eq("crates", R.workspace.members_dir)
+  end)
+end)

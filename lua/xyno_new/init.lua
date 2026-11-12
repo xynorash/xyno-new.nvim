@@ -9,6 +9,7 @@ M.defaults = {
   keymaps = false, -- false | true | { bin = lhs, lib = lhs, ... } (global, normal mode)
   projects_dir = nil, -- parent directory offered by the prompts (default ~/projects if it exists, else the cwd)
   egui_template = nil, -- { repo = "emilk/eframe_template", ref = <a pinned commit>, base_url = "https://github.com", allow_insecure = false }
+  workspace = {}, -- template of :RustNewWorkspace: { members_dir = "crates", version = "0.1.0", gitignore = "/target\n", git = true, git_branch = "main" }
   egui_build_after_new = nil, -- true: run `cargo build` in a snacks terminal after :EguiNew
 }
 
@@ -67,7 +68,7 @@ end
 
 --- Configure and start the plugin. Safe to call again. Returns false (after one error
 --- notification, no Lua error) when xyno-rust.nvim is missing, or when Neovim is too old.
----@param opts? { commands?: boolean, keymaps?: boolean|table<string, string|false>, projects_dir?: string, egui_template?: table, egui_build_after_new?: boolean }
+---@param opts? { commands?: boolean, keymaps?: boolean|table<string, string|false>, projects_dir?: string, egui_template?: table, workspace?: table, egui_build_after_new?: boolean }
 ---@return boolean
 function M.setup(opts)
   opts = vim.tbl_deep_extend("force", vim.deepcopy(M.defaults), opts or {})
@@ -77,6 +78,14 @@ function M.setup(opts)
   end
   if not check_dependencies() or not rust_api_ok("xyno-new") then
     return false
+  end
+  local rs = require("xyno_new.rust")
+  local wp = rs.validate_workspace(opts.workspace)
+  if #wp > 0 then
+    vim.notify("xyno-new.nvim: invalid options, workspace template ignored:\n  " .. table.concat(wp, "\n  "), vim.log.levels.ERROR, { title = "xyno-new" })
+    rs.set_workspace({})
+  else
+    rs.set_workspace(opts.workspace)
   end
   if opts.projects_dir ~= nil then
     vim.g.xyno_new_projects_dir = opts.projects_dir

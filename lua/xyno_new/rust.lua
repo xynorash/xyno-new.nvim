@@ -100,15 +100,65 @@ function M.resolver(edition)
   return (tonumber(edition) or 0) >= 2024 and "3" or "2"
 end
 
+--- Template of a new workspace (setup{ workspace = {...} }).
+M.workspace_defaults = {
+  members_dir = "crates", -- members go to <dir>/<name>, the manifest lists "<dir>/*"
+  version = "0.1.0", -- [workspace.package] version
+  gitignore = "/target\n", -- content of the .gitignore
+  git = true, -- run `git init` in the new workspace
+  git_branch = "main", -- initial branch of that repository
+}
+M.workspace = vim.deepcopy(M.workspace_defaults)
+
+--- Check the workspace template options; returns the problems (nothing is applied then).
+---@return string[]
+function M.validate_workspace(t)
+  if type(t) ~= "table" then
+    return { "workspace must be a table" }
+  end
+  local p = {}
+  for k, v in pairs(t) do
+    if M.workspace_defaults[k] == nil then
+      p[#p + 1] = ("unknown workspace option `%s`"):format(tostring(k))
+    elseif k == "members_dir" then
+      if not (type(v) == "string" and v:match("^[%w_][%w._-]*$") and v ~= "target" and v ~= ".." and #v <= 64) then
+        p[#p + 1] = "workspace.members_dir must be one plain directory name (letters, digits, `_`, `-`, `.`; not `target`)"
+      end
+    elseif k == "version" then
+      if not (type(v) == "string" and v:match("^%d+%.%d+%.%d+[%w.+-]*$") and #v <= 64) then
+        p[#p + 1] = "workspace.version must look like 0.1.0"
+      end
+    elseif k == "gitignore" then
+      if not (type(v) == "string" and #v <= 4096 and not v:find("%z")) then
+        p[#p + 1] = "workspace.gitignore must be a string of at most 4096 bytes"
+      end
+    elseif k == "git" then
+      if type(v) ~= "boolean" then
+        p[#p + 1] = "workspace.git must be true or false"
+      end
+    elseif k == "git_branch" then
+      if not (type(v) == "string" and v:match("^[%w][%w._/-]*$") and not v:find("..", 1, true) and not v:match("[/.]$") and #v <= 64) then
+        p[#p + 1] = "workspace.git_branch must be a plain branch name"
+      end
+    end
+  end
+  return p
+end
+
+--- Apply validated options (keys not given return to their defaults).
+function M.set_workspace(t)
+  M.workspace = vim.tbl_extend("force", vim.deepcopy(M.workspace_defaults), t or {})
+end
+
 --- The workspace's Cargo.toml.
 function M.workspace_toml(edition)
   return table.concat({
     "[workspace]",
     ('resolver = "%s"'):format(M.resolver(edition)),
-    'members = ["crates/*"]',
+    ('members = ["%s/*"]'):format(M.workspace.members_dir),
     "",
     "[workspace.package]",
-    'version = "0.1.0"',
+    ('version = "%s"'):format(M.workspace.version),
     ('edition = "%s"'):format(edition),
     "",
     "[workspace.dependencies]",
@@ -591,10 +641,10 @@ function M.create_workspace(p, cb)
     end
     root_made = true
     write_file(root .. "/Cargo.toml", M.workspace_toml(edition))
-    write_file(root .. "/.gitignore", "/target\n")
+    write_file(root .. "/.gitignore", M.workspace.gitignore)
     progress(("cargo new (%s %s) ..."):format(p.kind, member))
-    cargo({ "new", kind_flag(p.kind), "--vcs", "none", "crates/" .. member }, root)
-    local mdir = root .. "/crates/" .. member
+    cargo({ "new", kind_flag(p.kind), "--vcs", "none", M.workspace.members_dir .. "/" .. member }, root)
+    local mdir = root .. "/" .. M.workspace.members_dir .. "/" .. member
     local manifest = mdir .. "/Cargo.toml"
     local text = read_file(manifest)
     if not text then
@@ -602,8 +652,10 @@ function M.create_workspace(p, cb)
     end
     write_file(manifest, M.inherit(text))
     local git_note
-    if vim.fn.executable("git") == 1 then
-      local g = E.sys({ "git", "init", "-q", "-b", "main" }, { cwd = root })
+    if not M.workspace.git then
+      git_note = nil
+    elseif vim.fn.executable("git") == 1 then
+      local g = E.sys({ "git", "init", "-q", "-b", M.workspace.git_branch }, { cwd = root })
       if g.code ~= 0 then
         git_note = "git init failed: " .. M.first_line(g.stderr)
       end
@@ -615,6 +667,8 @@ function M.create_workspace(p, cb)
       name = name,
       kind = p.kind,
       member = member,
+      members_dir = M.workspace.members_dir,
+      gitignore = M.workspace.gitignore,
       edition = edition,
       resolver = M.resolver(edition),
       file = mdir .. "/" .. main_file(p.kind),
@@ -730,9 +784,9 @@ function M.layout(info)
   local mf = main_file(info.kind)
   return table.concat({
     info.name .. "/",
-    "  Cargo.toml        [workspace] resolver " .. info.resolver .. ', members = ["crates/*"], edition ' .. info.edition,
-    "  .gitignore        /target",
-    "  crates/" .. info.member .. "/",
+    "  Cargo.toml        [workspace] resolver " .. info.resolver .. ', members = ["' .. (info.members_dir or "crates") .. '/*"], edition ' .. info.edition,
+    "  .gitignore        " .. ((info.gitignore or "/target"):match("^[^\n]*") ~= "" and (info.gitignore or "/target"):match("^[^\n]*") or "(empty first line)"),
+    "  " .. (info.members_dir or "crates") .. "/" .. info.member .. "/",
     "    Cargo.toml      version and edition inherited",
     "    " .. mf,
   }, "\n")
