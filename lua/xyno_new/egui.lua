@@ -359,9 +359,11 @@ function M.readme(o)
   local run = M.md_section(o.template_readme, "testing locally")
     or "`cargo run --release`\n\nOn Linux the egui / eframe build needs the usual system packages (xcb, xkbcommon, openssl and pkg-config headers): see the template's README."
   local web = M.md_section(o.template_readme, "web locally")
-    or "Install the target and Trunk, then serve:\n\n"
+    or (
+      "Install the target and Trunk, then serve:\n\n"
       .. "1. `rustup target add wasm32-unknown-unknown`\n2. `cargo install --locked trunk`\n"
       .. "3. `trunk serve` (open `http://127.0.0.1:8080/index.html#dev`)\n\n`trunk build --release` writes the site to `dist/`."
+    )
   local parts = {
     "# " .. o.title,
     "An [egui](https://github.com/emilk/egui) app that runs natively and in the browser, generated from "
