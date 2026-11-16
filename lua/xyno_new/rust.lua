@@ -32,8 +32,27 @@ function M.name(raw)
   if not crate then
     return nil, why
   end
-  if not name:match("^[%a_]") then
+  if not name:match("^[A-Za-z_]") then
     return nil, "the name must start with a letter or '_'"
+  end
+  return name, crate
+end
+
+--- Validate the name of a workspace: the directory that holds it and the root of its members.
+--- The cargo package rules (M.name) plus what only a directory name needs: it must not end with
+--- '-' (the default member names are `<name>-app` / `<name>-core`, which then double the hyphen
+--- and read badly) and `<name>-core` / `<name>-app` must themselves be valid package names (a
+--- 64-character workspace name would produce an invalid default). Returns name, crate or nil, reason.
+function M.workspace_name(raw)
+  local name, crate = M.name(raw)
+  if not name then
+    return nil, crate
+  end
+  if name:sub(-1) == "-" then
+    return nil, "the name must not end with '-'"
+  end
+  if #name + #"-core" > 64 then
+    return nil, "the name is too long: the first member is named <name>-app / <name>-core (64 characters at most)"
   end
   return name, crate
 end
@@ -81,15 +100,74 @@ function M.resolver(edition)
   return (tonumber(edition) or 0) >= 2024 and "3" or "2"
 end
 
+--- Template of a new workspace (setup{ workspace = {...} }).
+M.workspace_defaults = {
+  members_dir = "crates", -- members go to <dir>/<name>, the manifest lists "<dir>/*"
+  version = "0.1.0", -- [workspace.package] version
+  gitignore = "/target\n", -- content of the .gitignore
+  git = true, -- run `git init` in the new workspace
+  git_branch = "main", -- initial branch of that repository
+}
+M.workspace = vim.deepcopy(M.workspace_defaults)
+
+--- Check the workspace template options; returns the problems (nothing is applied then).
+---@return string[]
+function M.validate_workspace(t)
+  if type(t) ~= "table" then
+    return { "workspace must be a table" }
+  end
+  local p = {}
+  for k, v in pairs(t) do
+    if M.workspace_defaults[k] == nil then
+      p[#p + 1] = ("unknown workspace option `%s`"):format(tostring(k))
+    elseif k == "members_dir" then
+      if not (type(v) == "string" and v:match("^[%w_][%w._-]*$") and v ~= "target" and v ~= ".." and #v <= 64) then
+        p[#p + 1] =
+          "workspace.members_dir must be one plain directory name (letters, digits, `_`, `-`, `.`; not `target`)"
+      end
+    elseif k == "version" then
+      if not (type(v) == "string" and v:match("^%d+%.%d+%.%d+[%w.+-]*$") and #v <= 64) then
+        p[#p + 1] = "workspace.version must look like 0.1.0"
+      end
+    elseif k == "gitignore" then
+      if not (type(v) == "string" and #v <= 4096 and not v:find("%z")) then
+        p[#p + 1] = "workspace.gitignore must be a string of at most 4096 bytes"
+      end
+    elseif k == "git" then
+      if type(v) ~= "boolean" then
+        p[#p + 1] = "workspace.git must be true or false"
+      end
+    elseif k == "git_branch" then
+      if
+        not (
+          type(v) == "string"
+          and v:match("^[%w][%w._/-]*$")
+          and not v:find("..", 1, true)
+          and not v:match("[/.]$")
+          and #v <= 64
+        )
+      then
+        p[#p + 1] = "workspace.git_branch must be a plain branch name"
+      end
+    end
+  end
+  return p
+end
+
+--- Apply validated options (keys not given return to their defaults).
+function M.set_workspace(t)
+  M.workspace = vim.tbl_extend("force", vim.deepcopy(M.workspace_defaults), t or {})
+end
+
 --- The workspace's Cargo.toml.
 function M.workspace_toml(edition)
   return table.concat({
     "[workspace]",
     ('resolver = "%s"'):format(M.resolver(edition)),
-    'members = ["crates/*"]',
+    ('members = ["%s/*"]'):format(M.workspace.members_dir),
     "",
     "[workspace.package]",
-    'version = "0.1.0"',
+    ('version = "%s"'):format(M.workspace.version),
     ('edition = "%s"'):format(edition),
     "",
     "[workspace.dependencies]",
@@ -121,66 +199,165 @@ function M.inherit(text, which)
   return table.concat(out, "\n")
 end
 
---- Find the `members = [...]` array of the [workspace] table: returns the list of strings and the
---- byte range { first = index of '[', last = index of ']' } in `text`; or nil, reason.
-local function members_array(text)
-  local pos, in_ws = 1, false
+-- TOML keys: bare (A-Za-z0-9_-) or quoted, joined by dots with optional spaces
+-- (`workspace.members`, `workspace . "members"`, `[workspace.package]`).
+
+--- Split a dotted key at the start of `s` (from byte `from`): returns the segments and the index
+--- after the key, or nil when `s` does not start with a key.
+local function split_key(s, from)
+  local segs, i = {}, from or 1
+  while true do
+    i = s:find("%S", i) or (#s + 1)
+    local c = s:sub(i, i)
+    local seg
+    if c == '"' or c == "'" then
+      local close = s:find(c, i + 1, true)
+      if not close then
+        return nil
+      end
+      seg = s:sub(i + 1, close - 1)
+      i = close + 1
+    else
+      seg = s:match("^[A-Za-z0-9_%-]+", i)
+      if not seg then
+        return nil
+      end
+      i = i + #seg
+    end
+    segs[#segs + 1] = seg
+    local after = s:find("%S", i) or (#s + 1)
+    if s:sub(after, after) == "." then
+      i = after + 1
+    else
+      return segs, i
+    end
+  end
+end
+
+--- The tables and keys of a manifest, line by line. Calls fn(path, value_pos, line, line_start) for
+--- every `key = value` line, with `path` the full key path (the [table] header joined with a dotted
+--- key: `workspace.members = [...]` under no header and `members = [...]` under [workspace] both give
+--- { "workspace", "members" }) and `value_pos` the index in `line` where the value starts. fn returns
+--- the index in `text` to continue from (a multi-line value consumed), or nil. Lines inside a
+--- multi-line array or string are not looked at as keys by the callers that consume them.
+local function each_key(text, fn)
+  local pos, header = 1, {}
   while pos <= #text do
     local eol = text:find("\n", pos, true) or (#text + 1)
     local line = text:sub(pos, eol - 1)
-    local header = line:match("^%s*%[([^%]]*)%]")
-    if header then
-      in_ws = vim.trim(header) == "workspace"
-    elseif in_ws then
-      local before = line:match("^(%s*members%s*=%s*)%[")
-      if before then
-        local first = pos + #before
-        local list, quote, i = {}, nil, first + 1
-        local cur
-        while i <= #text do
-          local c = text:sub(i, i)
-          if quote then
-            if c == "\\" and quote == '"' then
-              cur = cur .. text:sub(i, i + 1)
-              i = i + 1
-            elseif c == quote then
-              list[#list + 1] = cur
-              quote, cur = nil, nil
-            else
-              cur = cur .. c
-            end
-          elseif c == '"' or c == "'" then
-            quote, cur = c, ""
-          elseif c == "#" then
-            i = (text:find("\n", i, true) or #text) -- a comment up to the end of the line
-          elseif c == "]" then
-            return list, { first = first, last = i }
-          end
-          i = i + 1
+    local trimmed = line:match("^%s*(.-)%s*$")
+    if trimmed:sub(1, 2) == "[[" then
+      header = { "[[" } -- an array of tables: nothing below it is [workspace]
+    elseif trimmed:sub(1, 1) == "[" then
+      local inner = trimmed:match("^%[([^%]]*)%]")
+      header = inner and split_key(inner, 1) or { "?" }
+    elseif trimmed ~= "" and trimmed:sub(1, 1) ~= "#" then
+      local key, after = split_key(line, 1)
+      if key and line:sub(after):match("^%s*=") then
+        local value_pos = line:find("=", after, true) + 1
+        local path = vim.list_extend(vim.list_slice(header), key)
+        local next_pos = fn(path, value_pos, line, pos)
+        if next_pos and next_pos > pos then
+          eol = next_pos - 1
         end
-        return nil, "the members list of [workspace] is not closed"
       end
     end
     pos = eol + 1
   end
-  return nil, "no `members = [...]` list in [workspace]"
 end
 
---- The `[workspace.package]` keys of a Cargo.toml: { version = bool, edition = bool }.
+local function path_is(path, ...)
+  local want = { ... }
+  if #path ~= #want then
+    return false
+  end
+  for i, w in ipairs(want) do
+    if path[i] ~= w then
+      return false
+    end
+  end
+  return true
+end
+
+--- Find the `members = [...]` array of the [workspace] table, in any of its spellings: under
+--- `[workspace]`, as the dotted key `workspace.members = [...]` (also in the top table or below
+--- another dotted prefix), or inside an inline `workspace = { members = [...] }`. Returns the
+--- list of strings and the byte range { first = index of '[', last = index of ']' } in `text`;
+--- or nil, reason.
+local function members_array(text)
+  local found
+  each_key(text, function(path, value_pos, line, line_start)
+    if found then
+      return
+    end
+    local rest = line:sub(value_pos)
+    local lead
+    if path_is(path, "workspace", "members") then
+      lead = rest:match("^%s*%[()")
+    elseif path_is(path, "workspace") and rest:match("^%s*{") then
+      lead = rest:match("members%s*=%s*%[()")
+    end
+    if not lead then
+      return
+    end
+    -- index in `text` of the '['
+    local first = line_start + (value_pos - 1) + (lead - 1) - 1
+    local list, quote, i = {}, nil, first + 1
+    local cur
+    while i <= #text do
+      local c = text:sub(i, i)
+      if quote then
+        if c == "\\" and quote == '"' then
+          cur = cur .. text:sub(i, i + 1)
+          i = i + 1
+        elseif c == quote then
+          list[#list + 1] = cur
+          quote, cur = nil, nil
+        else
+          cur = cur .. c
+        end
+      elseif c == '"' or c == "'" then
+        quote, cur = c, ""
+      elseif c == "#" then
+        i = (text:find("\n", i, true) or #text) -- a comment up to the end of the line
+      elseif c == "]" then
+        found = { list = list, range = { first = first, last = i } }
+        return i + 1
+      end
+      i = i + 1
+    end
+    found = { err = "the members list of [workspace] is not closed" }
+  end)
+  if not found then
+    return nil, "no `members = [...]` list in [workspace]"
+  end
+  if found.err then
+    return nil, found.err
+  end
+  return found.list, found.range
+end
+
+--- The `[workspace.package]` keys of a Cargo.toml: { version = bool, edition = bool }; the
+--- dotted (`workspace.package.version = ...`, `package.version = ...` under [workspace]) and the
+--- inline (`package = { version = ... }`) spellings count too.
 local function workspace_package_keys(text)
-  local keys, in_pkg = {}, false
-  for line in text:gmatch("[^\r\n]+") do
-    local header = line:match("^%s*%[([^%]]*)%]")
-    if header then
-      in_pkg = vim.trim(header) == "workspace.package"
-    elseif in_pkg then
+  local keys = {}
+  each_key(text, function(path, value_pos, line)
+    if
+      #path == 3
+      and path[1] == "workspace"
+      and path[2] == "package"
+      and (path[3] == "version" or path[3] == "edition")
+    then
+      keys[path[3]] = true
+    elseif path_is(path, "workspace", "package") and line:sub(value_pos):match("^%s*{") then
       for _, k in ipairs({ "version", "edition" }) do
-        if line:match("^%s*" .. k .. "%s*=") then
+        if line:sub(value_pos):match("[{,]%s*" .. k .. "%s*=") then
           keys[k] = true
         end
       end
     end
-  end
+  end)
   return keys
 end
 
@@ -454,9 +631,9 @@ end
 function M.create_workspace(p, cb)
   local created, root, root_made = {}, nil, false
   E.run_async(function()
-    local name = M.name(p.name)
+    local name, why = M.workspace_name(p.name)
     if not name then
-      fail("invalid workspace name: " .. tostring(p.name))
+      fail("invalid workspace name: " .. tostring(why))
     end
     local member = M.name(p.member)
     if not member then
@@ -478,10 +655,10 @@ function M.create_workspace(p, cb)
     end
     root_made = true
     write_file(root .. "/Cargo.toml", M.workspace_toml(edition))
-    write_file(root .. "/.gitignore", "/target\n")
+    write_file(root .. "/.gitignore", M.workspace.gitignore)
     progress(("cargo new (%s %s) ..."):format(p.kind, member))
-    cargo({ "new", kind_flag(p.kind), "--vcs", "none", "crates/" .. member }, root)
-    local mdir = root .. "/crates/" .. member
+    cargo({ "new", kind_flag(p.kind), "--vcs", "none", M.workspace.members_dir .. "/" .. member }, root)
+    local mdir = root .. "/" .. M.workspace.members_dir .. "/" .. member
     local manifest = mdir .. "/Cargo.toml"
     local text = read_file(manifest)
     if not text then
@@ -489,8 +666,10 @@ function M.create_workspace(p, cb)
     end
     write_file(manifest, M.inherit(text))
     local git_note
-    if vim.fn.executable("git") == 1 then
-      local g = E.sys({ "git", "init", "-q", "-b", "main" }, { cwd = root })
+    if not M.workspace.git then
+      git_note = nil
+    elseif vim.fn.executable("git") == 1 then
+      local g = E.sys({ "git", "init", "-q", "-b", M.workspace.git_branch }, { cwd = root })
       if g.code ~= 0 then
         git_note = "git init failed: " .. M.first_line(g.stderr)
       end
@@ -502,6 +681,8 @@ function M.create_workspace(p, cb)
       name = name,
       kind = p.kind,
       member = member,
+      members_dir = M.workspace.members_dir,
+      gitignore = M.workspace.gitignore,
       edition = edition,
       resolver = M.resolver(edition),
       file = mdir .. "/" .. main_file(p.kind),
@@ -617,9 +798,18 @@ function M.layout(info)
   local mf = main_file(info.kind)
   return table.concat({
     info.name .. "/",
-    "  Cargo.toml        [workspace] resolver " .. info.resolver .. ', members = ["crates/*"], edition ' .. info.edition,
-    "  .gitignore        /target",
-    "  crates/" .. info.member .. "/",
+    "  Cargo.toml        [workspace] resolver "
+      .. info.resolver
+      .. ', members = ["'
+      .. (info.members_dir or "crates")
+      .. '/*"], edition '
+      .. info.edition,
+    "  .gitignore        "
+      .. (
+        (info.gitignore or "/target"):match("^[^\n]*") ~= "" and (info.gitignore or "/target"):match("^[^\n]*")
+        or "(empty first line)"
+      ),
+    "  " .. (info.members_dir or "crates") .. "/" .. info.member .. "/",
     "    Cargo.toml      version and edition inherited",
     "    " .. mf,
   }, "\n")
@@ -655,7 +845,9 @@ function M.finish_member(info)
     lines[#lines + 1] = ("next: `cargo run -p %s`"):format(info.member)
   end
   if #info.not_inherited > 0 then
-    lines[#lines + 1] = "[workspace.package] has no " .. table.concat(info.not_inherited, " / ") .. ": kept in the member"
+    lines[#lines + 1] = "[workspace.package] has no "
+      .. table.concat(info.not_inherited, " / ")
+      .. ": kept in the member"
   end
   notify(table.concat(lines, "\n"))
 end
@@ -718,8 +910,8 @@ local function parent_check(target)
   end
 end
 
-local function name_check(v)
-  local name, crate_or_why = M.name(v)
+local function name_check(v, workspace)
+  local name, crate_or_why = (workspace and M.workspace_name or M.name)(v)
   if not name then
     return nil, crate_or_why
   end
@@ -727,9 +919,9 @@ local function name_check(v)
 end
 
 --- Ask for a name (taking `arg` if it is valid); cb(name, crate).
-local function ask_name(prompt, arg, default, cb, extra)
+local function ask_name(prompt, arg, default, cb, extra, workspace)
   local function check(v)
-    local c, why = name_check(v)
+    local c, why = name_check(v, workspace)
     if c and extra then
       why = extra(c[1], c[2])
       if why then
@@ -819,7 +1011,7 @@ function M.new_workspace(name_arg)
         end)
       end)
     end)
-  end)
+  end, nil, true)
 end
 
 --- The workspace root for the current buffer (or the cwd), and its manifest text.

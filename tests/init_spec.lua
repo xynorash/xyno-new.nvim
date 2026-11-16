@@ -133,3 +133,100 @@ describe("xyno-rust.nvim missing", function()
     end
   end)
 end)
+
+describe("setup: egui_template validation and :checkhealth", function()
+  it("takes allow_insecure, refuses unknown keys and wrong types with one message", function()
+    H.ok(N.setup({ egui_template = { base_url = "http://mirror.local", allow_insecure = true } }))
+    H.eq(true, vim.g.xyno_new_egui_template.allow_insecure)
+    vim.g.xyno_new_egui_template = nil
+    local cap = H.capture_notify()
+    H.ok(N.setup({ egui_template = { allow_insecure = "yes", bogus = 1 } }))
+    H.is_nil(vim.g.xyno_new_egui_template)
+    local msg = cap.list[#cap.list].msg
+    H.match(msg, "allow_insecure must be true or false", true)
+    H.match(msg, "unknown egui_template key `bogus`", true)
+  end)
+
+  it("health reports the pinned template and an opted-in insecure URL", function()
+    local lines = {}
+    local orig = vim.health
+    local function rec(m)
+      lines[#lines + 1] = m
+    end
+    vim.health = { start = rec, ok = rec, info = rec, warn = rec, error = rec }
+    local ok, err = pcall(require("xyno_new.health").check)
+    vim.health = orig
+    H.ok(ok, err)
+    H.match(table.concat(lines, "\n"), "pinned to commit", true)
+    vim.health = { start = rec, ok = rec, info = rec, warn = rec, error = rec }
+    lines = {}
+    vim.g.xyno_new_egui_template = { base_url = "http://x.local", allow_insecure = true }
+    pcall(require("xyno_new.health").check)
+    vim.health = orig
+    vim.g.xyno_new_egui_template = nil
+    H.match(table.concat(lines, "\n"), "allow_insecure", true)
+  end)
+end)
+
+describe("xyno-rust.nvim API pin", function()
+  local rust = require("xyno_rust")
+  local saved = rust.api_version
+  after_each(function()
+    rust.api_version = saved
+  end)
+
+  local function setup_with(version)
+    rust.api_version = version
+    local notes, orig = {}, vim.notify
+    vim.notify = function(msg, level)
+      notes[#notes + 1] = { msg = msg, level = level }
+    end
+    local ok, err = pcall(require("xyno_new").setup, {})
+    vim.notify = orig
+    H.ok(ok, tostring(err))
+    return notes
+  end
+
+  it("states the API it needs and accepts it", function()
+    local want = require("xyno_new").requires_rust_api
+    H.match(want, "^%d+%.%d+$")
+    H.eq(true, (rust.compatible(want)))
+  end)
+
+  it("a newer major of xyno-rust.nvim: one clear error line, nothing started", function()
+    local notes = setup_with("2.0")
+    H.eq(1, #notes)
+    H.match(notes[1].msg, "xyno-new: xyno-rust api 2.0 is installed", true)
+    H.eq(vim.log.levels.ERROR, notes[1].level)
+  end)
+
+  it("an older minor of xyno-rust.nvim says to update it", function()
+    local notes = setup_with("1.0")
+    H.eq(1, #notes)
+    H.match(notes[1].msg, "update xyno-rust.nvim", true)
+  end)
+end)
+
+describe("workspace option", function()
+  local R = require("xyno_new.rust")
+  after_each(function()
+    R.set_workspace({})
+  end)
+
+  it("is applied by setup() and a bad one is refused as a whole with one error", function()
+    local notes, orig = {}, vim.notify
+    vim.notify = function(msg, level)
+      notes[#notes + 1] = { msg = msg, level = level }
+    end
+    local ok = pcall(N.setup, { workspace = { members_dir = "libs" } })
+    H.ok(ok)
+    H.eq(0, #notes)
+    H.eq("libs", R.workspace.members_dir)
+    pcall(N.setup, { workspace = { members_dir = "a/b", version = "x" } })
+    vim.notify = orig
+    H.eq(1, #notes)
+    H.eq(vim.log.levels.ERROR, notes[1].level)
+    H.match(notes[1].msg, "workspace template ignored", true)
+    H.eq("crates", R.workspace.members_dir)
+  end)
+end)

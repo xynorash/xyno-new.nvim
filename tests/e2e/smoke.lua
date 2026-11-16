@@ -3,7 +3,9 @@
 -- a binary, a library and a workspace are made in a scratch directory (cargo, offline).
 local failures = {}
 local function check(name, ok, detail)
-  io.stdout:write(("%s %s%s\n"):format(ok and "ok  " or "FAIL", name, (not ok and detail) and (": " .. tostring(detail)) or ""))
+  io.stdout:write(
+    ("%s %s%s\n"):format(ok and "ok  " or "FAIL", name, (not ok and detail) and (": " .. tostring(detail)) or "")
+  )
   if not ok then
     failures[#failures + 1] = name
   end
@@ -21,9 +23,20 @@ end
 local keys = require("xyno_new").dashboard_keys({ { key = "q", desc = "Quit", action = ":qa" } })
 check("dashboard_keys adds four entries before Quit", #keys == 5 and keys[5].desc == "Quit")
 
-local repo = vim.fs.dirname(vim.fs.dirname(vim.fs.dirname(vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p"))))
+local repo =
+  vim.fs.dirname(vim.fs.dirname(vim.fs.dirname(vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p"))))
 vim.cmd("helptags " .. vim.fn.fnameescape(repo .. "/doc"))
-for _, tag in ipairs({ "xyno-new", "xyno-new-setup", "xyno-new-api", ":RustNewBin", ":RustNewLib", ":RustNewWorkspace", ":RustNewMember", ":EguiNew", "xyno_new.dashboard_keys()" }) do
+for _, tag in ipairs({
+  "xyno-new",
+  "xyno-new-setup",
+  "xyno-new-api",
+  ":RustNewBin",
+  ":RustNewLib",
+  ":RustNewWorkspace",
+  ":RustNewMember",
+  ":EguiNew",
+  "xyno_new.dashboard_keys()",
+}) do
   local ok, err = pcall(vim.cmd, "help " .. tag)
   check(":help " .. tag, ok, err)
 end

@@ -8,7 +8,9 @@ M.defaults = {
   commands = true, -- :RustNewBin :RustNewLib :RustNewWorkspace :RustNewMember :EguiNew
   keymaps = false, -- false | true | { bin = lhs, lib = lhs, ... } (global, normal mode)
   projects_dir = nil, -- parent directory offered by the prompts (default ~/projects if it exists, else the cwd)
-  egui_template = nil, -- { repo = "emilk/eframe_template", ref = "main", base_url = "https://github.com" }
+  egui_template = nil, -- { repo = "emilk/eframe_template", ref = <a pinned commit>, base_url = "https://github.com", allow_insecure = false }
+  workspace = {}, -- template of :RustNewWorkspace: { members_dir = "crates", version = "0.1.0", gitignore = "/target\n", git = true, git_branch = "main" }
+  templates = nil, -- pinned template list for :RustNewFrom: { { name, path | git + rev (40 hex), description? }, ... }
   egui_build_after_new = nil, -- true: run `cargo build` in a snacks terminal after :EguiNew
 }
 
@@ -47,9 +49,33 @@ local function check_dependencies()
   return true
 end
 
+--- The xyno-rust.nvim API this plugin was written against (see xyno_rust.compatible).
+M.requires_rust_api = "1.1"
+
+--- Fails with one clear line when xyno-rust.nvim is too old or too new for this plugin.
+local function rust_api_ok(name)
+  local ok, rust = pcall(require, "xyno_rust")
+  if not ok or type(rust.compatible) ~= "function" then
+    vim.notify(
+      name
+        .. ": the installed xyno-rust.nvim is too old to say which API it has (needs API "
+        .. M.requires_rust_api
+        .. "): update xyno-rust.nvim",
+      vim.log.levels.ERROR
+    )
+    return false
+  end
+  local good, why = rust.compatible(M.requires_rust_api)
+  if not good then
+    vim.notify(name .. ": " .. why, vim.log.levels.ERROR)
+    return false
+  end
+  return true
+end
+
 --- Configure and start the plugin. Safe to call again. Returns false (after one error
 --- notification, no Lua error) when xyno-rust.nvim is missing, or when Neovim is too old.
----@param opts? { commands?: boolean, keymaps?: boolean|table<string, string|false>, projects_dir?: string, egui_template?: table, egui_build_after_new?: boolean }
+---@param opts? { commands?: boolean, keymaps?: boolean|table<string, string|false>, projects_dir?: string, egui_template?: table, workspace?: table, egui_build_after_new?: boolean }
 ---@return boolean
 function M.setup(opts)
   opts = vim.tbl_deep_extend("force", vim.deepcopy(M.defaults), opts or {})
@@ -57,14 +83,60 @@ function M.setup(opts)
     vim.notify("xyno-new.nvim needs Neovim 0.12 or newer", vim.log.levels.ERROR, { title = "xyno-new" })
     return false
   end
-  if not check_dependencies() then
+  if not check_dependencies() or not rust_api_ok("xyno-new") then
     return false
+  end
+  local rs = require("xyno_new.rust")
+  local wp = rs.validate_workspace(opts.workspace)
+  if #wp > 0 then
+    vim.notify(
+      "xyno-new.nvim: invalid options, workspace template ignored:\n  " .. table.concat(wp, "\n  "),
+      vim.log.levels.ERROR,
+      { title = "xyno-new" }
+    )
+    rs.set_workspace({})
+  else
+    rs.set_workspace(opts.workspace)
   end
   if opts.projects_dir ~= nil then
     vim.g.xyno_new_projects_dir = opts.projects_dir
   end
   if opts.egui_template ~= nil then
-    vim.g.xyno_new_egui_template = opts.egui_template
+    local bad = {}
+    if type(opts.egui_template) ~= "table" then
+      bad[1] = "egui_template must be a table"
+    else
+      for k, v in pairs(opts.egui_template) do
+        if k == "allow_insecure" then
+          if type(v) ~= "boolean" then
+            bad[#bad + 1] = "egui_template.allow_insecure must be true or false"
+          end
+        elseif k ~= "repo" and k ~= "ref" and k ~= "base_url" then
+          bad[#bad + 1] = ("unknown egui_template key `%s`"):format(tostring(k))
+        end
+      end
+    end
+    if #bad > 0 then
+      vim.notify(
+        "xyno-new.nvim: invalid options, egui_template ignored:\n  " .. table.concat(bad, "\n  "),
+        vim.log.levels.ERROR,
+        { title = "xyno-new" }
+      )
+    else
+      vim.g.xyno_new_egui_template = opts.egui_template
+    end
+  end
+  do
+    local tpl = require("xyno_new.templates")
+    local list, bad = tpl.validate(opts.templates)
+    if #bad > 0 then
+      vim.notify(
+        "xyno-new.nvim: invalid options, these templates are ignored:\n  " .. table.concat(bad, "\n  "),
+        vim.log.levels.ERROR,
+        { title = "xyno-new" }
+      )
+    end
+    tpl.set(list)
   end
   if opts.egui_build_after_new ~= nil then
     vim.g.xyno_new_egui_build_after_new = opts.egui_build_after_new
@@ -72,6 +144,7 @@ function M.setup(opts)
   if opts.commands then
     require("xyno_new.rust").setup()
     require("xyno_new.egui").setup()
+    require("xyno_new.templates").setup()
   end
   if opts.keymaps then
     local keys = opts.keymaps == true and M.default_keymaps or opts.keymaps

@@ -11,7 +11,7 @@ I use this in my own Rust setup, [xynovim](https://github.com/xynorash/xynovim),
 ## Requirements
 
 - Neovim 0.12+
-- [xyno-rust.nvim](https://github.com/xynorash/xyno-rust.nvim) (a required dependency: `xyno_rust.rust_context` finds the workspace for `:RustNewMember`, `xyno_rust.fsutil` is used for the nesting check). If it is missing, `setup()` prints one error line and defines nothing.
+- [xyno-rust.nvim](https://github.com/xynorash/xyno-rust.nvim) (a required dependency: `xyno_rust.rust_context` finds the workspace for `:RustNewMember`, `xyno_rust.fsutil` is used for the nesting check). If it is missing, `setup()` prints one error line and defines nothing. `setup()` also checks the API version (`require("xyno_rust").compatible(require("xyno_new").requires_rust_api)`, now `1.1`): a xyno-rust.nvim with another major or an older minor gives one error line naming the fix, and nothing starts. The CI workflow fetches the dependencies by tag (`XYNO_RUST_REF`), never `main`; pin your own plugin manager the same way (`tag = "v0.2.0"` or a commit) so a breaking major cannot arrive unannounced.
 - `cargo` in `$PATH`
 - `git` (optional): used for `git init -b main` in a workspace and for `:EguiNew`, and to prefill the author prompts. Without it those steps are skipped with a note.
 - for `:EguiNew`: `curl` and `unzip` (on Windows `tar` instead of `unzip`), network access to github.com for the first download (the ZIP is cached, with its ETag, and used when offline), and `rustc` for the minimum-version warning
@@ -46,14 +46,53 @@ Because the commands are listed in `cmd`, lazy.nvim loads the plugin when you ru
   commands = true,             -- :RustNewBin :RustNewLib :RustNewWorkspace :RustNewMember :EguiNew
   keymaps = false,             -- false | true | { bin = lhs, lib = lhs, ... } (global, normal mode)
   projects_dir = nil,          -- parent directory offered by the prompts; nil: ~/projects if it exists, else the cwd
-  egui_template = nil,         -- { repo = "emilk/eframe_template", ref = "main", base_url = "https://github.com" }
+  egui_template = nil,         -- { repo = "emilk/eframe_template", ref = <pinned commit>, base_url = "https://github.com", allow_insecure = false }
+  workspace = {},              -- template of :RustNewWorkspace, see the table below
   egui_build_after_new = nil,  -- true: run `cargo build` in a snacks terminal after :EguiNew
 }
 ```
 
-`projects_dir`, `egui_template` and `egui_build_after_new` are stored in `vim.g.xyno_new_projects_dir`, `vim.g.xyno_new_egui_template` and `vim.g.xyno_new_egui_build_after_new`, which the modules read; you can set those variables directly instead. `egui_template.base_url` must be an `https://`, `http://` or `file://` URL (the file form is how the specs use a local fake template).
+| option | default | meaning |
+| --- | --- | --- |
+| `commands` | `true` | define the five commands |
+| `keymaps` | `false` | `true` or a table of the keys you want |
+| `projects_dir` | `~/projects` if it exists, else the cwd | parent directory the prompts offer |
+| `egui_template.repo` / `ref` / `base_url` / `allow_insecure` | `emilk/eframe_template` / pinned commit / `https://github.com` / `false` | where `:EguiNew` downloads the template from |
+| `egui_build_after_new` | `nil` | `true`: `cargo build` in a snacks terminal afterwards |
+| `workspace.members_dir` | `"crates"` | directory of the members; the manifest lists `"<dir>/*"` |
+| `workspace.version` | `"0.1.0"` | `[workspace.package] version` |
+| `workspace.gitignore` | `"/target\n"` | content of the workspace `.gitignore` (at most 4096 bytes) |
+| `workspace.git` | `true` | run `git init` in the new workspace |
+| `workspace.git_branch` | `"main"` | its initial branch |
+
+The options are validated: an invalid `egui_template` or `workspace` is refused as a whole with one error line naming every problem (the defaults stay); a second `setup()` replaces the first one's workspace template.
+
+Highlights: this plugin draws no window of its own (the prompts are `vim.ui.input` / `vim.ui.select`, the dashboard entries are snacks'), so it defines no `XynoNew*` groups; they follow your UI plugin and colorscheme.
+
+`projects_dir`, `egui_template` and `egui_build_after_new` are stored in `vim.g.xyno_new_projects_dir`, `vim.g.xyno_new_egui_template` and `vim.g.xyno_new_egui_build_after_new`, which the modules read; you can set those variables directly instead. `egui_template.base_url` must be an `https://` URL. `http://` and `file://` are refused unless you set `egui_template.allow_insecure = true` (a mirror on a trusted network, or a local copy for tests; the specs use it); a URL with credentials (`user@host`) is refused. The refusal happens before any request.
+
+**The template is pinned.** `egui_template.ref` defaults to a commit of `emilk/eframe_template` (`xyno_new.egui.PINNED_REF`, f108546, 2026-08-31, egui 0.36), not to `main`, so the project you get does not change under you and the personalisation was checked against that exact tree. The spec against the real template downloads that commit from GitHub and personalises it (it needs network and skips without). I did not build the generated project in this run (it would compile egui and its dependencies), so "it compiles" is not claimed. `ref = "main"` follows the template's newest state like before; the pin moves only when this plugin is updated (change `PINNED_REF` on purpose and re-run the template specs). `:checkhealth xyno_new` shows what is in use.
 
 No global keymap is set by default. `keymaps = true` maps `<leader>rnb`, `rni`, `rnw`, `rnm`, `rne` (binary, library, workspace, member, egui). A table maps only the actions you list, to the keys you choose (`false` skips one).
+
+## Templates (`:RustNewFrom`)
+
+A picker over the built-in kinds (binary, library, workspace, member, egui) and a **pinned list** you configure:
+
+```lua
+require("xyno_new").setup({ templates = {
+  { name = "axum service", path = "~/templates/axum", description = "axum + tracing" },
+  { name = "cli", git = "https://github.com/me/cli-template", rev = "<40-hex commit>" },
+} })
+```
+
+A template is copied; `{{name}}`, `{{crate_name}}` and `{{title}}` are replaced in text files and file names. A git template needs the exact 40-hex commit (a branch can move); it is cloned without hooks and checked out detached. **Nothing is executed**: a template with `cargo-generate.toml` hooks or any `.rhai` file is refused, and so is one with a symbolic link. This is deliberately not `cargo-generate`: its templates run Rhai scripts, so using one is running its author's code. Placeholders beyond the three above (prompts, conditionals) are not supported.
+
+## Names
+
+Package and workspace names follow cargo's rules before anything is created: ASCII letters, digits, `-` and `_` (whatever your locale), not starting with a digit or `-`, no Rust keyword, no name cargo reserves (`test`, `std`, `deps`, ...), no Windows device name (`nul`, `con`, `com1`, ... are refused on every platform so the project can move to Windows), at most 64 characters. A **workspace** name also must not end with `-` and must leave room for its default first member (`<name>-app` / `<name>-core` is at most 64 characters), and the error says why. 
+
+`:RustNewMember`, the nesting check and the inheritance of `version`/`edition` read the workspace's `Cargo.toml` in every TOML spelling of the workspace table: `[workspace]` with `members = [...]`, the dotted key `workspace.members = [...]` (also with spaces or quotes around the parts), an inline `workspace = { members = [...] }`, and `workspace.package.version`, `package.version` under `[workspace]` or an inline `package = { ... }`. Keys of other tables (`[package]`, `[[bin]]`, `[other.workspace]`) are not mistaken for the workspace's. Limits: it is a line-oriented reader, not a TOML parser: a `members` array built over several lines with a `]` inside a string is read correctly, but multi-line strings that look like keys are not skipped.
 
 ## Commands
 
@@ -63,7 +102,7 @@ No global keymap is set by default. `keymaps = true` maps `<leader>rnb`, `rni`, 
 | `:RustNewLib [name]` | The same with `--lib` and `src/lib.rs`. A name with hyphens shows the crate identifier it will have in Rust code. |
 | `:RustNewWorkspace [name]` | Asks for the workspace name, the parent directory, the kind of the first member (binary or library) and its name. Writes `Cargo.toml` (`[workspace]` with `members = ["crates/*"]`, `[workspace.package]` with `version` and the edition your cargo uses for new projects, an empty `[workspace.dependencies]`), `.gitignore`, creates the first member with `cargo new --vcs none crates/<member>` so that its version and edition inherit from the workspace, and runs `git init -b main` (no commit). Asks first when the parent lies in another workspace's members or in a git work tree. |
 | `:RustNewMember [name]` | Adds a binary or library crate to the workspace of the current buffer (or the cwd). It adds the path to an explicit `members` list, or relies on a glob. Refuses a name that clashes with an existing member (hyphen or underscore) or a directory that exists. |
-| `:EguiNew [name]` | Downloads the current eframe_template as a ZIP (never a copy kept in the plugin), asks for the crate name, author name, author e-mail (both may be empty) and the parent directory, and personalises it the way the template's README and `fill_template.sh` describe: crate name, authors, window and page title, the web build file names in `assets/sw.js`. Nothing from the template is executed. The template's `rust-toolchain` file is never copied; its `rust-version` stays as the minimum, and a warning says when your `rustc` is older. |
+| `:EguiNew [name]` | Downloads the pinned eframe_template commit as a ZIP (never a copy kept in the plugin), asks for the crate name, author name, author e-mail (both may be empty) and the parent directory, and personalises it the way the template's README and `fill_template.sh` describe: crate name, authors, window and page title, the web build file names in `assets/sw.js`. Nothing from the template is executed. The template's `rust-toolchain` file is never copied; its `rust-version` stays as the minimum, and a warning says when your `rustc` is older. |
 
 A prompt that is cancelled ends the command silently, and a failed step removes what that run created. Only one project is created at a time.
 
